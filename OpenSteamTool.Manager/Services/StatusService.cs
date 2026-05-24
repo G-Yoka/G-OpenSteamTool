@@ -1,6 +1,7 @@
 ﻿using System.IO;
 using System.Diagnostics;
 using System.Text;
+using System.Text.RegularExpressions;
 using OpenSteamTool.Manager.Models;
 
 namespace OpenSteamTool.Manager.Services;
@@ -35,7 +36,7 @@ public sealed class StatusService(
         return new SteamInstallStatus
         {
             SteamPath = steamPath,
-            SteamVersion = ReadSteamVersion(steamExe),
+            SteamVersion = ReadSteamVersion(steamPath, steamExe),
             IsValidSteamPath = true,
             IsSteamRunning = running,
             IsOpenSteamToolLoaded = loaded,
@@ -122,7 +123,53 @@ public sealed class StatusService(
             .OrderBy(Path.GetFileName);
     }
 
-    private static string ReadSteamVersion(string steamExe)
+    private static string ReadSteamVersion(string steamPath, string steamExe)
+    {
+        var clientVersion = ReadClientVersionFromLog(Path.Combine(steamPath, "logs", "connection_log.txt"));
+        if (!string.IsNullOrWhiteSpace(clientVersion))
+        {
+            return clientVersion;
+        }
+
+        return ReadSteamExeVersion(steamExe);
+    }
+
+    private static string ReadClientVersionFromLog(string logPath)
+    {
+        if (!File.Exists(logPath))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            using var stream = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream, detectEncodingFromByteOrderMarks: true);
+            string? latest = null;
+            while (!reader.EndOfStream)
+            {
+                var line = reader.ReadLine();
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    continue;
+                }
+
+                var match = Regex.Match(line, @"Client version:\s*(?<version>\d+)", RegexOptions.IgnoreCase);
+                if (match.Success)
+                {
+                    latest = match.Groups["version"].Value;
+                }
+            }
+
+            return latest ?? string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string ReadSteamExeVersion(string steamExe)
     {
         if (!File.Exists(steamExe))
         {
