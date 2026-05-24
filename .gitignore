@@ -1,0 +1,30 @@
+# Build output
+bin/
+obj/
+**/bin/
+**/obj/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# .NET
+TestResults/
+*.nupkg
+*.snupkg
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Logs and local runtime files
+*.log
+opensteamtool-manager/
+
+# Keep payload DLLs only when intentionally committed.
+# They are required for a ready-to-run manager package, but can be removed
+# before publishing if the repository should not redistribute binaries.

@@ -1,0 +1,19 @@
+<Window x:Class="OpenSteamTool.Manager.Views.TextPromptWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="{Binding Title}"
+        Width="460" Height="220"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        Background="White">
+    <StackPanel Margin="18">
+        <TextBlock Text="{Binding Message}" TextWrapping="Wrap" Margin="0,0,0,12" />
+        <TextBox x:Name="PromptInput"
+                 Text="{Binding Value, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, FallbackValue='', TargetNullValue=''}"
+                 Margin="0,0,0,14" />
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="确认" Width="84" Margin="0,0,8,0" IsDefault="True" Command="{Binding ConfirmCommand}" />
+            <Button Content="取消" Width="84" IsCancel="True" Command="{Binding CancelCommand}" />
+        </StackPanel>
+    </StackPanel>
+</Window>
