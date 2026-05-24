@@ -17,15 +17,14 @@
 ## 项目结构
 
 ```text
-manager/
-  OpenSteamTool.Manager/
-    Views/
-    ViewModels/
-    Models/
-    Services/
-    Helpers/
-    Converters/
-    Payload/
+OpenSteamTool.Manager/
+  Views/
+  ViewModels/
+  Models/
+  Services/
+  Helpers/
+  Converters/
+  Payload/
 ```
 
 当前保持单项目结构，不拆分类库。WPF 界面使用 MVVM 组织，核心第三方依赖仅为 `CommunityToolkit.Mvvm`。
@@ -33,14 +32,14 @@ manager/
 ## 构建
 
 ```powershell
-dotnet restore manager\OpenSteamTool.Manager\OpenSteamTool.Manager.csproj
-dotnet build manager\OpenSteamTool.Manager\OpenSteamTool.Manager.csproj -c Release
+dotnet restore OpenSteamTool.Manager\OpenSteamTool.Manager.csproj
+dotnet build OpenSteamTool.Manager\OpenSteamTool.Manager.csproj -c Release
 ```
 
 构建产物位于：
 
 ```text
-manager\OpenSteamTool.Manager\bin\Release\net8.0-windows\
+OpenSteamTool.Manager\bin\Release\net8.0-windows\
 ```
 
 ## Payload DLL
@@ -48,7 +47,7 @@ manager\OpenSteamTool.Manager\bin\Release\net8.0-windows\
 应用安装 DLL 时会读取：
 
 ```text
-manager\OpenSteamTool.Manager\Payload\
+OpenSteamTool.Manager\Payload\
 ```
 
 需要包含：
