@@ -1,8 +1,8 @@
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
-using System.Reflection;
 using System.Net.Http;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -12,16 +12,17 @@ namespace OpenSteamTool.Manager.Services;
 
 public sealed class UpdateService
 {
-    private static readonly HttpClient Http = CreateHttpClient();
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
     };
 
+    private readonly GitHubHttpService github;
     private readonly Version currentVersion;
 
-    public UpdateService()
+    public UpdateService(GitHubHttpService github)
     {
+        this.github = github;
         currentVersion = ReadCurrentVersion();
     }
 
@@ -37,8 +38,8 @@ public sealed class UpdateService
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, apiUrl);
-            using var response = await Http.SendAsync(request, cancellationToken);
+            using var request = github.CreateRequest(HttpMethod.Get, apiUrl);
+            using var response = await github.SendAsync(request, cancellationToken);
 
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
@@ -47,7 +48,7 @@ public sealed class UpdateService
 
             if (!response.IsSuccessStatusCode)
             {
-                return CreateFailureResult($"GitHub Releases API 请求失败: {(int)response.StatusCode} {response.ReasonPhrase}");
+                return CreateFailureResult(await github.BuildFailureMessageAsync(response, "GitHub Releases API request failed", cancellationToken));
             }
 
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -71,7 +72,7 @@ public sealed class UpdateService
                     ReleaseTag = release.TagName ?? string.Empty,
                     PublishedAt = release.PublishedAt,
                     ReleasePageUrl = release.HtmlUrl ?? ReleasesUrl,
-                    ErrorMessage = $"Release 标签 {release.TagName} 无法解析为 SemVer 版本号。"
+                    ErrorMessage = $"Release tag {release.TagName} cannot be parsed as a SemVer version."
                 };
             }
 
@@ -97,7 +98,7 @@ public sealed class UpdateService
         }
         catch (Exception ex)
         {
-            return CreateFailureResult($"GitHub Releases API 请求失败: {ex.Message}");
+            return CreateFailureResult($"GitHub Releases API 闂備浇宕垫慨鏉懨洪銏犵哗闂侇剙绉甸崕鎴︽煟濡も偓閻楀棛娆㈤悙鍝勭骇闁割偒鍋勬禍顖滄偖? {ex.Message}");
         }
     }
 
@@ -110,12 +111,12 @@ public sealed class UpdateService
     {
         if (!release.HasRelease)
         {
-            throw new InvalidOperationException("当前没有可用于自动更新的公开 Release。");
+            throw new InvalidOperationException("No public Release is available for auto update.");
         }
 
         if (string.IsNullOrWhiteSpace(release.AssetDownloadUrl))
         {
-            throw new InvalidOperationException("该 Release 未提供可自动更新的 ZIP 发布包。");
+            throw new InvalidOperationException("This Release does not provide a ZIP asset for auto update.");
         }
 
         var workDir = Path.Combine(Path.GetTempPath(), "OpenSteamTool.Manager", "update", DateTime.UtcNow.ToString("yyyyMMddHHmmss"));
@@ -127,7 +128,7 @@ public sealed class UpdateService
         var zipPath = Path.Combine(downloadDir, release.AssetName);
         var sourceRoot = await DownloadAssetAsync(release.AssetDownloadUrl, zipPath, progress, cancellationToken);
 
-        progress?.Report(new UpdateProgress { Stage = "解压中", Percent = 0, Message = "正在准备更新文件..." });
+        progress?.Report(new UpdateProgress { Stage = "Extracting", Percent = 0, Message = "Preparing update files..." });
         ZipFile.ExtractToDirectory(sourceRoot, extractDir, overwriteFiles: true);
 
         var payloadRoot = ResolvePayloadRoot(extractDir);
@@ -136,15 +137,7 @@ public sealed class UpdateService
 
         await File.WriteAllTextAsync(updateScript, BuildScript(), new UTF8Encoding(false), cancellationToken);
         StartHelperProcess(updateScript, payloadRoot, installDirectory, exeName, processId);
-        progress?.Report(new UpdateProgress { Stage = "替换中", Percent = 100, Message = "替换器已启动，主程序退出后将自动更新并重启。" });
-    }
-
-    private static HttpClient CreateHttpClient()
-    {
-        var client = new HttpClient();
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("OpenSteamTool.Manager");
-        client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
-        return client;
+        progress?.Report(new UpdateProgress { Stage = "Replacing", Percent = 100, Message = "Update helper started; the app will replace files and restart after exit." });
     }
 
     private UpdateCheckResult CreateNoReleaseResult()
@@ -194,15 +187,18 @@ public sealed class UpdateService
                ?? assets.FirstOrDefault(x => x.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
     }
 
-    private static async Task<string> DownloadAssetAsync(
+    private async Task<string> DownloadAssetAsync(
         string url,
         string zipPath,
         IProgress<UpdateProgress>? progress,
         CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        using var request = github.CreateRequest(HttpMethod.Get, url, "application/octet-stream");
+        using var response = await github.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(await github.BuildFailureMessageAsync(response, "GitHub release asset download failed", cancellationToken));
+        }
 
         await using var input = await response.Content.ReadAsStreamAsync(cancellationToken);
         await using var output = File.Create(zipPath);
@@ -221,18 +217,18 @@ public sealed class UpdateService
                 var percent = (int)Math.Clamp(readTotal * 100L / totalLength.Value, 0, 100);
                 progress?.Report(new UpdateProgress
                 {
-                    Stage = "下载中",
+                    Stage = "Downloading",
                     Percent = percent,
-                    Message = $"正在下载更新包... {percent}%"
+                    Message = $"濠电姵顔栭崰妤冩崲閹邦喖绶ら柦妯侯檧閼版寧銇勮箛鎾村櫧闁崇粯妫冮幃妤呮晲鎼粹€崇缂備椒妞掗崡鎶藉蓟閿熺姴鐐婄憸蹇涘箺閻樼粯鐓涢悘鐐存灮闊剛鈧?.. {percent}%"
                 });
             }
         }
 
         progress?.Report(new UpdateProgress
         {
-            Stage = "下载中",
+            Stage = "Downloading",
             Percent = 100,
-            Message = "更新包下载完成。"
+            Message = "Update package download completed."
         });
 
         return zipPath;
@@ -288,7 +284,7 @@ public sealed class UpdateService
         startInfo.ArgumentList.Add("-ProcessId");
         startInfo.ArgumentList.Add(processId.ToString());
 
-        using var helper = Process.Start(startInfo) ?? throw new InvalidOperationException("无法启动更新器辅助进程。");
+        using var helper = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start update helper process.");
     }
 
     private static Version ReadCurrentVersion()
@@ -324,19 +320,19 @@ while (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) {
 }
 
 if (-not (Test-Path -LiteralPath $Source)) {
-    throw "更新源目录不存在: $Source"
+    throw "闂傚倷绀侀幖顐⒚洪妶澶嬪仱闁靛ň鏅涢拑鐔封攽閻樻彃鈧敻寮ㄩ敃鍌涚厵闂侇叏绠戦弸鐔虹磼閹邦収娈橀柟鍙夋倐閹囧醇閻旂尨绱辩紓鍌欑劍椤ㄥ懘藝闁秴鐒垫い鎺嶈兌閳洟鏌ㄥ顓犵瘈闁? $Source"
 }
 
 New-Item -ItemType Directory -Path $Target -Force | Out-Null
 
 & "$env:SystemRoot\System32\robocopy.exe" $Source $Target /MIR /R:2 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
 if ($LASTEXITCODE -ge 8) {
-    throw "Robocopy 失败，退出码: $LASTEXITCODE"
+    throw "Robocopy 婵犵數濮伴崹娲磿閼测晛鍨濋柛鎾楀嫬鏋傞梺鎸庢礀閸婂綊寮查鍌楀亾閸忓浜鹃梺鍛婃磸閸斿本绂嶆ィ鍐╃厓鐟滄粓宕滈悢椋庢殾婵炲棙鎸婚幆鐐烘煕閿旇骞栭柣? $LASTEXITCODE"
 }
 
 $exePath = Join-Path $Target $ExeName
 if (-not (Test-Path -LiteralPath $exePath)) {
-    throw "更新后的程序未找到: $exePath"
+    throw "闂傚倷绀侀幖顐⒚洪妶澶嬪仱闁靛ň鏅涢拑鐔封攽閻樺弶鎼愰悷娆欑畵楠炴牗娼忛崜褏蓱闂佷紮缍€娴滎剛妲愰幒鏂哄亾閿濆簼鎲鹃柛搴＄箳缁辨帡鈥﹂幋婵嗙睄閻庢鍠氶弫濠氥€侀弮鍫濆窛妞ゆ挆鍕垫（闂? $exePath"
 }
 
 Start-Process -FilePath $exePath -WorkingDirectory $Target | Out-Null

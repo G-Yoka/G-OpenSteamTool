@@ -1,4 +1,4 @@
-<Window x:Class="OpenSteamTool.Manager.Views.MainWindow"
+﻿<Window x:Class="OpenSteamTool.Manager.Views.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="OpenSteamTool 管理器"
@@ -310,10 +310,13 @@
                                 <TextBlock Text="{Binding UpdateStateText, FallbackValue=''}" Margin="0,10,0,0" FontWeight="SemiBold" />
                                 <TextBlock Text="{Binding UpdateDetailText, FallbackValue=''}" Margin="0,4,0,0" Foreground="#4B5563" TextWrapping="Wrap" />
                                 <TextBlock Text="{Binding UpdateProgressText, FallbackValue=''}" Margin="0,4,0,0" Foreground="#B45309" />
+                                <TextBlock Text="{Binding GitHubTokenStateText, FallbackValue=''}" Margin="0,6,0,0" Foreground="#6B7280" />
                                 <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                                     <Button Content="检查更新" Command="{Binding CheckForUpdatesCommand}" />
                                     <Button Content="下载并更新" Command="{Binding DownloadAndUpdateCommand}" />
                                     <Button Content="打开发布页" Command="{Binding OpenReleasePageCommand}" />
+                                    <Button Content="设置 GitHub 令牌" Command="{Binding SetGitHubTokenCommand}" />
+                                    <Button Content="清除令牌" Command="{Binding ClearGitHubTokenCommand}" />
                                 </StackPanel>
                             </StackPanel>
                         </Border>

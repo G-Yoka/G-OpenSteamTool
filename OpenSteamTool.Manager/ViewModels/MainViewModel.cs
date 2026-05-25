@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -25,6 +25,8 @@ public partial class MainViewModel : ViewModelBase
     private readonly IAppControlService _appControl;
     private readonly IDialogService _dialogs;
     private readonly ITextPromptService _prompts;
+    private readonly ISecretPromptService _secretPrompts;
+    private readonly GitHubTokenService _githubToken;
     private UpdateCheckResult? _latestUpdate;
     private bool _loadingGameResources;
 
@@ -74,6 +76,9 @@ public partial class MainViewModel : ViewModelBase
 
     [ObservableProperty]
     private string latestReleaseUrl = string.Empty;
+
+    [ObservableProperty]
+    private string gitHubTokenStateText = string.Empty;
 
     [ObservableProperty]
     private string logsText = string.Empty;
@@ -149,7 +154,9 @@ public partial class MainViewModel : ViewModelBase
         GamePackageInstallService gameInstaller,
         IAppControlService appControl,
         IDialogService dialogs,
-        ITextPromptService prompts)
+        ITextPromptService prompts,
+        ISecretPromptService secretPrompts,
+        GitHubTokenService githubToken)
     {
         _locator = locator;
         _process = process;
@@ -164,12 +171,15 @@ public partial class MainViewModel : ViewModelBase
         _appControl = appControl;
         _dialogs = dialogs;
         _prompts = prompts;
+        _secretPrompts = secretPrompts;
+        _githubToken = githubToken;
     }
 
     public async Task InitializeAsync()
     {
         SteamPath = _locator.LoadLastPath();
         AppVersionText = _updates.CurrentVersionText;
+        UpdateGitHubTokenState();
         _ = RefreshLatestUpdateAsync();
         await ExecuteBusyAsync("正在加载状态...", () => RefreshStateAsync());
         await RefreshGameResourcesAsyncCore(false);
@@ -192,6 +202,35 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand(CanExecute = nameof(CanExecuteWhenIdle))]
     private async Task RefreshAsync()
         => await ExecuteBusyAsync("正在刷新状态...", () => RefreshStateAsync());
+
+    [RelayCommand(CanExecute = nameof(CanExecuteWhenIdle))]
+    private async Task SetGitHubTokenAsync()
+        => await ExecuteBusyAsync("正在设置 GitHub 令牌...", async () =>
+        {
+            var token = _secretPrompts.Show("GitHub 令牌", "请输入 GitHub Personal Access Token（PAT）。令牌会加密保存在本机当前用户配置中。");
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                return;
+            }
+
+            _githubToken.SaveToken(token);
+            UpdateGitHubTokenState();
+            await Task.CompletedTask;
+        });
+
+    [RelayCommand(CanExecute = nameof(CanExecuteWhenIdle))]
+    private async Task ClearGitHubTokenAsync()
+        => await ExecuteBusyAsync("正在清除 GitHub 令牌...", async () =>
+        {
+            if (!_dialogs.Confirm("OpenSteamTool 管理器", "确定要清除本机保存的 GitHub 令牌吗？"))
+            {
+                return;
+            }
+
+            _githubToken.ClearToken();
+            UpdateGitHubTokenState();
+            await Task.CompletedTask;
+        });
 
     [RelayCommand(CanExecute = nameof(CanExecuteWhenIdle))]
     private async Task RestartSteamAsync()
@@ -626,6 +665,9 @@ public partial class MainViewModel : ViewModelBase
         ApplyUpdateResult(result);
     }
 
+    private void UpdateGitHubTokenState()
+        => GitHubTokenStateText = _githubToken.HasToken ? "GitHub 令牌：已配置" : "GitHub 令牌：未配置";
+
     private void ApplyUpdateResult(UpdateCheckResult result)
     {
         _latestUpdate = result;
@@ -991,6 +1033,8 @@ public partial class MainViewModel : ViewModelBase
         CheckForUpdatesCommand.NotifyCanExecuteChanged();
         DownloadAndUpdateCommand.NotifyCanExecuteChanged();
         OpenReleasePageCommand.NotifyCanExecuteChanged();
+        SetGitHubTokenCommand.NotifyCanExecuteChanged();
+        ClearGitHubTokenCommand.NotifyCanExecuteChanged();
         AddGameCommand.NotifyCanExecuteChanged();
         ImportGameCommand.NotifyCanExecuteChanged();
         SaveGameCommand.NotifyCanExecuteChanged();

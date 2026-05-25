@@ -1,6 +1,5 @@
-﻿using System.IO;
+using System.IO;
 using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Text.Json;
 using OpenSteamTool.Manager.Models;
 
@@ -10,15 +9,20 @@ public sealed class GitHubGamePackageService
 {
     private const string RepositoryOwner = "G-Yoka";
     private const string RepositoryName = "GameResources";
-    private static readonly HttpClient Http = CreateHttpClient();
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
     };
 
+    private readonly GitHubHttpService github;
     private readonly SemaphoreSlim _cacheLock = new(1, 1);
     private GamePackageManifest? _cachedManifest;
     private DateTimeOffset _cachedAt;
+
+    public GitHubGamePackageService(GitHubHttpService github)
+    {
+        this.github = github;
+    }
 
     public string RepositoryUrl => $"https://github.com/{RepositoryOwner}/{RepositoryName}";
 
@@ -39,8 +43,8 @@ public sealed class GitHubGamePackageService
                 return _cachedManifest;
             }
 
-            using var request = new HttpRequestMessage(HttpMethod.Get, ManifestUrl);
-            using var response = await Http.SendAsync(request, cancellationToken);
+            using var request = github.CreateRequest(HttpMethod.Get, ManifestUrl, "application/json");
+            using var response = await github.SendAsync(request, cancellationToken);
 
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
@@ -49,7 +53,7 @@ public sealed class GitHubGamePackageService
 
             if (!response.IsSuccessStatusCode)
             {
-                throw new InvalidOperationException($"Failed to fetch manifest: {(int)response.StatusCode} {response.ReasonPhrase}");
+                throw new InvalidOperationException(await github.BuildFailureMessageAsync(response, "GitHub 鐠у嫭绨〒鍛礋鐠囬攱鐪版径杈Е", cancellationToken));
             }
 
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -88,11 +92,4 @@ public sealed class GitHubGamePackageService
         _cachedAt = default;
     }
 
-    private static HttpClient CreateHttpClient()
-    {
-        var client = new HttpClient();
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("OpenSteamTool.Manager");
-        client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        return client;
-    }
 }

@@ -9,12 +9,18 @@ namespace OpenSteamTool.Manager.Services;
 
 public sealed class GamePackageInstallService
 {
-    private static readonly HttpClient Http = CreateHttpClient();
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
         WriteIndented = true
     };
+
+    private readonly GitHubHttpService github;
+
+    public GamePackageInstallService(GitHubHttpService github)
+    {
+        this.github = github;
+    }
 
     public async Task<GamePackageInstallRecord> InstallAsync(
         string steamPath,
@@ -280,15 +286,18 @@ public sealed class GamePackageInstallService
         }
     }
 
-    private static async Task DownloadFileAsync(
+    private async Task DownloadFileAsync(
         string url,
         string destinationPath,
         IProgress<UpdateProgress>? progress,
         CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        using var request = github.CreateRequest(HttpMethod.Get, url, "application/octet-stream");
+        using var response = await github.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(await github.BuildFailureMessageAsync(response, "GitHub resource package download failed", cancellationToken));
+        }
 
         await using var input = await response.Content.ReadAsStreamAsync(cancellationToken);
         await using var output = File.Create(destinationPath);
@@ -389,13 +398,6 @@ public sealed class GamePackageInstallService
 
         var invalid = Path.GetInvalidFileNameChars();
         return new string(value.Select(ch => invalid.Contains(ch) ? '_' : ch).ToArray());
-    }
-
-    private static HttpClient CreateHttpClient()
-    {
-        var client = new HttpClient();
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("OpenSteamTool.Manager");
-        return client;
     }
 
     private static void TryDeleteDirectory(string path)
