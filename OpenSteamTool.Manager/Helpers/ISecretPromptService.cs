@@ -1,0 +1,1 @@
+@OpenSteamTool.Manager/Helpers/ISecretPromptService.cs

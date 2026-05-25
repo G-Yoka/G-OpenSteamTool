@@ -1,0 +1,1 @@
+@OpenSteamTool.Manager/Services/GitHubHttpService.cs

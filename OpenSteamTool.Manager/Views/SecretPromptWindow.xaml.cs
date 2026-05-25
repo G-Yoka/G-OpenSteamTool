@@ -1,0 +1,1 @@
+@OpenSteamTool.Manager/Views/SecretPromptWindow.xaml.cs
