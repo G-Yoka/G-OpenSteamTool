@@ -1,10 +1,10 @@
-{
+﻿{
   "version": 1,
-  "versionTag": "v0.1.5",
-  "releaseName": "OpenSteamTool Manager v0.1.5",
-  "releaseTag": "v0.1.5",
-  "publishedAt": "2026-05-26T00:00:00+08:00",
-  "releasePageUrl": "https://github.com/G-Yoka/OpenSteamTool-Manager/releases/tag/v0.1.5",
-  "assetPath": "releases/OpenSteamTool.Manager-v0.1.5.zip",
-  "assetUrl": "https://github.com/G-Yoka/OpenSteamTool-Manager/releases/download/v0.1.5/OpenSteamTool.Manager-v0.1.5.zip"
+  "versionTag": "v0.1.6",
+  "releaseName": "OpenSteamTool Manager v0.1.6",
+  "releaseTag": "v0.1.6",
+  "publishedAt": "2026-05-26T21:56:03Z",
+  "releasePageUrl": "https://github.com/G-Yoka/OpenSteamTool-Manager/releases/tag/v0.1.6",
+  "assetPath": "releases/OpenSteamTool.Manager-v0.1.6.zip",
+  "assetUrl": "https://github.com/G-Yoka/OpenSteamTool-Manager/releases/download/v0.1.6/OpenSteamTool.Manager-v0.1.6.zip"
 }
