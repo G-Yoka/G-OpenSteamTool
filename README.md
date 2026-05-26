@@ -1,51 +1,45 @@
 # OpenSteamTool Manager
 
-OpenSteamTool Manager 是一个基于 `.NET 8 WPF` 的 Windows 桌面管理器，用来管理 Steam 根目录中的 OpenSteamTool 相关文件、Lua 配置、日志、游戏资源包，以及应用自身更新。
+OpenSteamTool Manager 鏄竴涓熀浜?`.NET 8 WPF` 鐨?Windows 妗岄潰绠＄悊鍣紝鐢ㄦ潵绠＄悊 Steam 鏍圭洰褰曢噷鐨?OpenSteamTool 鐩稿叧鏂囦欢銆丩ua 閰嶇疆銆佹棩蹇椼€佹父鎴忚祫婧愬寘锛屼互鍙婂簲鐢ㄥ唴鏇存柊銆?
+褰撳墠鐗堟湰锛歚v0.1.5`
 
-当前版本：`v0.1.5`
+## 涓昏鍔熻兘
 
-## 主要功能
+- 閫夋嫨骞舵牎楠?Steam 鏍圭洰褰?- 瀹夎銆佺Щ闄ゅ苟鏍￠獙 `OpenSteamTool.dll`銆乣dwmapi.dll`銆乣xinput1_4.dll`
+- 閫氳繃 SHA-256 鏍￠獙 Payload 涓?Steam 鐩綍涓殑 DLL 鏄惁涓€鑷?- 妫€鏌?`OpenSteamTool.dll` 鏄惁鐪熺殑宸插姞杞借繘 `steam.exe`
+- 缂栬緫 `opensteamtool.toml`
+- 鎸夋瘡涓父鎴忎竴涓?Lua 鏂囦欢绠＄悊 `ost_<appid>.lua`
+- 瀵煎叆鐜版湁 Lua 鏂囦欢骞舵帴绠′负绠＄悊鍣ㄩ厤缃?- 鏌ョ湅 `Steam\\opensteamtool\\*.log`
+- 蹇€熼噸鍚?Steam
+- 鍦ㄥ簲鐢ㄥ唴妫€鏌ユ洿鏂般€佷笅杞藉苟鏇挎崲绋嬪簭
+- 鎸?Steam AppId 浠?GitHub 娓告垙璧勬簮浠撳簱涓嬭浇骞跺畨瑁呰祫婧?- 鍒囨崲鏇存柊/璧勬簮鏉ユ簮浼樺厛绾э細`jsDelivr CDN` 鎴?`GitHub Releases`
+- 娴嬭瘯 jsDelivr銆丟itHub API銆丟itHub Raw 鐨勮繛閫氭€?
+## 鏇存柊鏂瑰紡
 
-- 选择并校验 Steam 根目录
-- 安装、移除并校验 `OpenSteamTool.dll`、`dwmapi.dll`、`xinput1_4.dll`
-- 通过 SHA-256 校验 Payload 与 Steam 目录中的 DLL 是否一致
-- 检查 `OpenSteamTool.dll` 是否已真正加载进 `steam.exe`
-- 编辑 `opensteamtool.toml`
-- 按每个游戏一个 Lua 文件管理 `ost_<appid>.lua`
-- 导入现有 Lua 文件并接管到管理器
-- 查看 `Steam\opensteamtool\*.log`
-- 快速重启 Steam
-- 检查更新并在应用内完成更新
-- 按 Steam AppId 从 GitHub 游戏资源仓库下载并安装资源
+绠＄悊鍣ㄤ紭鍏堜娇鐢?`jsDelivr CDN` 鑾峰彇鏇存柊鍏冩暟鎹拰娓告垙璧勬簮娓呭崟锛孏itHub 浣滀负鍏滃簳鏉ユ簮銆?
+- 鏇存柊鍏冩暟鎹細`cdn/update.json`
+- 鏇存柊鍖咃細`releases/OpenSteamTool.Manager-vX.Y.Z.zip`
+- 娓告垙璧勬簮娓呭崟锛歚GameResources/manifest.json`
 
-## CDN 更新
+濡傛灉浣犺鍙戝竷鏂扮増鏈紝璇峰悓姝ユ洿鏂帮細
 
-为减少 GitHub 网络问题带来的影响，更新与资源下载优先走 jsDelivr CDN：
-
-- 更新检查优先读取 `cdn/update.json`
-- 更新包优先从 `releases/` 目录的 CDN 地址下载
-- 游戏资源清单优先读取 `GameResources` 仓库的 CDN 地址
-- CDN 不可用时自动回退到 GitHub 原始地址或 Releases 兜底
-
-如果要发布一个可被 CDN 直接读取的更新包，请同步更新：
-
+- `OpenSteamTool.Manager/OpenSteamTool.Manager.csproj`
 - `cdn/update.json`
 - `releases/OpenSteamTool.Manager-vX.Y.Z.zip`
 
-## 构建
+## 鏋勫缓
 
 ```powershell
 dotnet restore OpenSteamTool.Manager\OpenSteamTool.Manager.csproj
 dotnet build OpenSteamTool.Manager\OpenSteamTool.Manager.csproj -c Release
 ```
 
-构建输出位于：
-
+杈撳嚭鐩綍锛?
 ```text
 OpenSteamTool.Manager\bin\Release\net8.0-windows\
 ```
 
-## 目录结构
+## 鐩綍缁撴瀯
 
 ```text
 OpenSteamTool.Manager/
@@ -60,6 +54,6 @@ OpenSteamTool.Manager/
   releases/
 ```
 
-## 许可证
+## 璁稿彲
 
-本仓库采用 `GPL-3.0-only` 许可证。OpenSteamTool 相关上游项目同样遵循 GPL-3.0，第三方资源与说明见 `THIRD_PARTY_NOTICES.md`。
+鏈粨搴撻噰鐢?`GPL-3.0-only` 璁稿彲璇併€侽penSteamTool 鐩稿叧涓婃父椤圭洰鍚屾牱閬靛惊 GPL-3.0锛岀涓夋柟璧勬簮涓庤鏄庤 `THIRD_PARTY_NOTICES.md`銆?
