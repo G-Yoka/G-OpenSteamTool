@@ -397,13 +397,23 @@ function App() {
             />
           )}
           {tab === "dll" && (
-            <DllPanel
-              steamDir={steamDir}
-              state={state}
-              onInstall={() => runAction(() => installDlls(steamDir), "DLL 已安装", "正在安装 DLL...")}
-              onRemove={() => runAction(() => removeDlls(steamDir), "DLL 已移除", "正在移除 DLL...")}
-              onRefresh={() => refreshAll()}
-            />
+            <div className="dll-page">
+              <div className="actions-row dll-page-actions">
+                <button className="primary" onClick={() => runAction(() => installDlls(steamDir), "DLL 已安装", "正在安装 DLL...")} disabled={!steamDir || !state?.dll_resources_ready}>
+                  <Download size={18} />
+                  安装 DLL
+                </button>
+                <button onClick={() => runAction(() => removeDlls(steamDir), "DLL 已移除", "正在移除 DLL...")} disabled={!steamDir}>
+                  <Trash2 size={18} />
+                  移除 DLL
+                </button>
+                <button onClick={() => refreshAll()} disabled={!steamDir}>
+                  <RefreshCcw size={18} />
+                  刷新
+                </button>
+              </div>
+              <DllPanel state={state} />
+            </div>
           )}
           {tab === "settings" && (
             <SettingsPanel
@@ -703,11 +713,13 @@ function LuaPanel({
             <Field label="游戏名称 Name" value={form.name} onChange={(value) => onForm({ ...form, name: value })} />
             <Field label="访问令牌 Access Token" value={form.access_token ?? ""} onChange={(value) => onForm({ ...form, access_token: value })} />
             <Field label="清单ID Manifest GID" value={form.manifest_gid ?? ""} onChange={(value) => onForm({ ...form, manifest_gid: value })} />
+          </div>
+          <DepotKeysEditor form={form} onForm={onForm} />
+          <div className="form-grid">
             <Field label="应用票据 AppTicket Hex" value={form.app_ticket_hex ?? ""} onChange={(value) => onForm({ ...form, app_ticket_hex: value })} wide />
             <Field label="加密票据 ETicket Hex" value={form.e_ticket_hex ?? ""} onChange={(value) => onForm({ ...form, e_ticket_hex: value })} wide />
             <Field label="成就统计 SteamID Stat SteamID" value={form.stat_steam_id ?? ""} onChange={(value) => onForm({ ...form, stat_steam_id: value })} />
           </div>
-          <DepotKeysEditor form={form} onForm={onForm} />
         </div>
         <div className="actions-row">
           <button className="primary" onClick={onSave} disabled={!steamDir || !form.appid || busy !== "idle"}>
@@ -720,19 +732,7 @@ function LuaPanel({
   );
 }
 
-function DllPanel({
-  steamDir,
-  state,
-  onInstall,
-  onRemove,
-  onRefresh,
-}: {
-  steamDir: string;
-  state: ScanState | null;
-  onInstall: () => void;
-  onRemove: () => void;
-  onRefresh: () => void;
-}) {
+function DllPanel({ state }: { state: ScanState | null }) {
   return (
     <section className="panel">
       <PanelTitle icon={Box} title="DLL 文件状态" extra={state?.dll_resources_ready ? "资源就绪" : "资源缺失"} />
@@ -763,20 +763,6 @@ function DllPanel({
           缺少资源：{state?.missing_dll_resources.join(", ") || "未扫描"}
         </div>
       )}
-      <div className="actions-row">
-        <button className="primary" onClick={onInstall} disabled={!steamDir || !state?.dll_resources_ready}>
-          <Download size={18} />
-          安装 DLL
-        </button>
-        <button onClick={onRemove} disabled={!steamDir}>
-          <Trash2 size={18} />
-          移除 DLL
-        </button>
-        <button onClick={onRefresh} disabled={!steamDir}>
-          <RefreshCcw size={18} />
-          刷新
-        </button>
-      </div>
     </section>
   );
 }
