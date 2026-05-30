@@ -736,13 +736,24 @@ function DllPanel({
   return (
     <section className="panel">
       <PanelTitle icon={Box} title="DLL 文件状态" extra={state?.dll_resources_ready ? "资源就绪" : "资源缺失"} />
-      <div className="table dll-status-table">
+      <div className="dll-status-list">
         {(state?.dlls ?? []).map((dll) => (
-          <div className="table-row" key={dll.name}>
-            <strong>{dll.name}</strong>
-            <span title={dll.resource_hash ?? ""}>{shortHash(dll.resource_hash)}</span>
-            <span title={dll.target_hash ?? ""}>{shortHash(dll.target_hash)}</span>
-            <span className={dllClass(dll)}>{dllLabel(dll)}</span>
+          <div className="dll-status-card" key={dll.name}>
+            <div className="dll-status-head">
+              <div>
+                {stateIcon(dll.state)}
+                <strong>{dll.name}</strong>
+              </div>
+              <span className={`dll-status-badge ${dllClass(dll)}`}>{dllLabel(dll)}</span>
+            </div>
+            <div className="hash-row">
+              <span>资源哈希</span>
+              <code>{formatHash(dll.resource_hash)}</code>
+            </div>
+            <div className="hash-row">
+              <span>目标哈希</span>
+              <code>{formatHash(dll.target_hash)}</code>
+            </div>
           </div>
         ))}
       </div>
@@ -1100,7 +1111,7 @@ function summarizeDlls(dlls: DllStatus[]) {
 function dllLabel(dll: DllStatus) {
   if (!dll.resource_hash) return "资源缺失";
   if (!dll.target_hash) return "未安装";
-  return dll.hash_matched ? "匹配" : "不匹配";
+  return dll.hash_matched ? "一致" : "不一致";
 }
 
 function dllClass(dll: DllStatus) {
@@ -1119,8 +1130,8 @@ function overviewDllClass(dll: DllStatus) {
   return dll.state === "Managed" ? "ok-text" : dll.state === "Foreign" ? "warn-text" : "muted-text";
 }
 
-function shortHash(hash?: string | null) {
-  return hash ? hash.slice(0, 12) : "--";
+function formatHash(hash?: string | null) {
+  return hash || "--";
 }
 
 function stateIcon(state: string) {

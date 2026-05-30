@@ -489,6 +489,71 @@ select {
   grid-template-columns: minmax(190px, 1fr) 150px 150px 110px;
 }
 
+.dll-status-list {
+  display: grid;
+  gap: 10px;
+}
+
+.dll-status-card {
+  border: 1px solid rgba(98, 128, 194, 0.18);
+  border-radius: 10px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  background: rgba(4, 14, 35, 0.38);
+}
+
+.dll-status-head,
+.dll-status-head div,
+.hash-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.dll-status-head {
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.dll-status-head div {
+  gap: 8px;
+}
+
+.dll-status-badge {
+  min-width: 76px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 3px 10px;
+  text-align: center;
+  font-weight: 700;
+  background: rgba(8, 18, 43, 0.62);
+}
+
+.hash-row {
+  gap: 10px;
+}
+
+.hash-row span {
+  width: 68px;
+  flex: 0 0 auto;
+  color: #aebbd8;
+}
+
+.hash-row code {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid rgba(130, 158, 214, 0.18);
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: rgba(3, 8, 18, 0.58);
+  color: #dce6ff;
+  font-family: "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .game-row {
   grid-template-columns: 42px minmax(0, 1fr) 54px 68px 38px;
   width: 100%;
