@@ -321,9 +321,11 @@ select {
 }
 
 .overview-grid {
+  height: 100%;
+  min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  grid-template-rows: 176px 168px 188px;
+  grid-template-rows: minmax(152px, 0.9fr) minmax(132px, 0.78fr) minmax(178px, 1fr);
   grid-template-areas:
     "init metrics"
     "dll fetch"
@@ -375,7 +377,7 @@ select {
 
 .panel {
   min-height: 0;
-  padding: 13px;
+  padding: 12px;
   overflow: hidden;
 }
 
@@ -413,8 +415,8 @@ select {
 }
 
 .panel-title {
-  min-height: 30px;
-  margin-bottom: 9px;
+  min-height: 28px;
+  margin-bottom: 8px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -446,7 +448,7 @@ select {
   grid-template-columns: 28px 1fr 44px;
   align-items: center;
   gap: 9px;
-  margin-bottom: 10px;
+  margin-bottom: 9px;
 }
 
 .icon-button {
@@ -668,6 +670,7 @@ select {
 
 .summary-line {
   grid-template-columns: 132px 1fr;
+  min-height: 30px;
 }
 
 .summary-line strong {
