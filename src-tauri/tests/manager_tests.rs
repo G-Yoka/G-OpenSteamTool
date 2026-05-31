@@ -8,6 +8,7 @@ use g_opensteamtool::manager::{
     save_settings_to_dir, scan_state_with_assets, select_beta_release, set_game_enabled_in_dir,
     steam_shutdown_command_specs, strip_verbatim_prefix, upsert_game_in_dir, validate_steam_dir,
     DllLoadState, DllState, GameConfig, GitHubReleaseAsset, GitHubReleaseInfo, ManagerSettings,
+    ManifestEntry,
 };
 
 fn make_steam_dir() -> tempfile::TempDir {
@@ -89,6 +90,27 @@ fn render_game_lua_uses_g_prefixed_file_contract() {
     assert!(lua.contains("setManifestid(753640, \"5656605350306673283\")"));
     assert!(lua.contains("setETicket(753640, \"abcdef\")"));
     assert!(lua.contains("setStat(753640, \"76561197960287930\")"));
+}
+
+#[test]
+fn render_game_lua_uses_manifest_entries_when_present() {
+    let mut game = sample_game();
+    game.manifest_entries = vec![
+        ManifestEntry {
+            depot_id: 753641,
+            manifest_gid: "1111111111111111111".into(),
+        },
+        ManifestEntry {
+            depot_id: 753642,
+            manifest_gid: "2222222222222222222".into(),
+        },
+    ];
+
+    let lua = render_game_lua(&game).unwrap();
+
+    assert!(lua.contains("setManifestid(753641, \"1111111111111111111\")"));
+    assert!(lua.contains("setManifestid(753642, \"2222222222222222222\")"));
+    assert!(!lua.contains("setManifestid(753640, \"5656605350306673283\")"));
 }
 
 #[test]
@@ -267,6 +289,66 @@ addappid(1962701,0,"96feb03fc707b975cf8271da4659fdb16c14c4b1a5c5bf8f94bd66e39edd
     assert!(!output.contains(
         "addappid(1962700, 0, \"96feb03fc707b975cf8271da4659fdb16c14c4b1a5c5bf8f94bd66e39edd4d96\")"
     ));
+}
+
+#[test]
+fn import_lua_file_preserves_manifest_depot_mapping() {
+    let steam = make_steam_dir();
+    let source_dir = tempfile::tempdir().unwrap();
+    let source = source_dir.path().join("3892270.lua");
+    fs::write(
+        &source,
+        r#"addappid(3892270, 0)
+addappid(3892271, 0, "90695be6010d5ec2e8890f1d742357316f4d5f74a8a9d22b2ae076b184797167")
+setManifestid(3892271, "1917689724381081508")
+"#,
+    )
+    .unwrap();
+
+    let imported = import_lua_file_from_path(steam.path(), &source).unwrap();
+    let output = fs::read_to_string(
+        steam
+            .path()
+            .join("config")
+            .join("lua")
+            .join("G-3892270.lua"),
+    )
+    .unwrap();
+
+    assert_eq!(imported.manifest_entries.len(), 1);
+    assert_eq!(imported.manifest_entries[0].depot_id, 3892271);
+    assert_eq!(
+        imported.manifest_entries[0].manifest_gid,
+        "1917689724381081508"
+    );
+    assert!(output.contains("setManifestid(3892271, \"1917689724381081508\")"));
+    assert!(!output.contains("setManifestid(3892270, \"1917689724381081508\")"));
+}
+
+#[test]
+fn list_games_backfills_manifest_entries_from_meta_lua_body() {
+    let steam = make_steam_dir();
+    let lua_dir = steam.path().join("config").join("lua");
+    fs::create_dir_all(&lua_dir).unwrap();
+    fs::write(
+        lua_dir.join("G-3892270.lua"),
+        r#"-- G-OpenSteamTool: 3892270 Gamble With Your Friends
+-- GOST-META: {"appid":3892270,"name":"Gamble With Your Friends","enabled":true,"depot_key":"","access_token":"","manifest_gid":"1917689724381081508","app_ticket_hex":"","e_ticket_hex":"","stat_steam_id":"","appid_entries":[{"appid":3892270,"unlock_flag":0,"depot_key":""},{"appid":3892271,"unlock_flag":0,"depot_key":"90695be6010d5ec2e8890f1d742357316f4d5f74a8a9d22b2ae076b184797167"}]}
+addappid(3892270, 0)
+addappid(3892271, 0, "90695be6010d5ec2e8890f1d742357316f4d5f74a8a9d22b2ae076b184797167")
+setManifestid(3892271, "1917689724381081508")
+"#,
+    )
+    .unwrap();
+
+    let games = list_games_from_dir(steam.path()).unwrap();
+
+    assert_eq!(games[0].manifest_entries.len(), 1);
+    assert_eq!(games[0].manifest_entries[0].depot_id, 3892271);
+    assert_eq!(
+        games[0].manifest_entries[0].manifest_gid,
+        "1917689724381081508"
+    );
 }
 
 #[test]
@@ -614,6 +696,7 @@ fn sample_game() -> GameConfig {
         e_ticket_hex: Some("abcdef".into()),
         stat_steam_id: Some("76561197960287930".into()),
         appid_entries: Vec::new(),
+        manifest_entries: Vec::new(),
     }
 }
 

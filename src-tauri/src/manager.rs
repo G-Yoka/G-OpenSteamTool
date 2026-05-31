@@ -69,6 +69,12 @@ pub struct AppIdEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ManifestEntry {
+    pub depot_id: u32,
+    pub manifest_gid: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GameConfig {
     pub appid: u32,
     pub name: String,
@@ -82,6 +88,8 @@ pub struct GameConfig {
     pub stat_steam_id: Option<String>,
     #[serde(default)]
     pub appid_entries: Vec<AppIdEntry>,
+    #[serde(default)]
+    pub manifest_entries: Vec<ManifestEntry>,
 }
 
 fn default_true() -> bool {
@@ -407,7 +415,15 @@ pub fn render_game_lua(game: &GameConfig) -> Result<String> {
     if let Some(token) = clean_opt(&game.access_token) {
         lines.push(format!("addtoken({}, \"{}\")", game.appid, token));
     }
-    if let Some(gid) = clean_opt(&game.manifest_gid) {
+    let manifest_entries = normalized_manifest_entries(game);
+    if !manifest_entries.is_empty() {
+        for entry in manifest_entries {
+            lines.push(format!(
+                "setManifestid({}, \"{}\")",
+                entry.depot_id, entry.manifest_gid
+            ));
+        }
+    } else if let Some(gid) = clean_opt(&game.manifest_gid) {
         lines.push(format!("setManifestid({}, \"{}\")", game.appid, gid));
     }
     if let Some(ticket) = clean_opt(&game.app_ticket_hex) {
@@ -1046,6 +1062,14 @@ fn validate_game(game: &GameConfig) -> Result<()> {
             }
         }
     }
+    for entry in &game.manifest_entries {
+        if entry.depot_id == 0 {
+            return Err("Manifest Depot ID must be greater than zero".into());
+        }
+        if !entry.manifest_gid.chars().all(|c| c.is_ascii_digit()) {
+            return Err("manifest gid must contain digits only".into());
+        }
+    }
     for (label, value) in [
         ("access token", &game.access_token),
         ("manifest gid", &game.manifest_gid),
@@ -1081,11 +1105,27 @@ fn normalized_appid_entries(game: &GameConfig) -> Vec<AppIdEntry> {
     }]
 }
 
+fn normalized_manifest_entries(game: &GameConfig) -> Vec<ManifestEntry> {
+    game.manifest_entries
+        .iter()
+        .filter_map(|entry| {
+            clean_opt(&Some(entry.manifest_gid.clone())).map(|manifest_gid| ManifestEntry {
+                depot_id: entry.depot_id,
+                manifest_gid,
+            })
+        })
+        .collect()
+}
+
 fn parse_game_lua(file_name: &str, text: &str) -> Option<GameConfig> {
-    if let Some(game) = text.lines().find_map(|line| {
+    if let Some(mut game) = text.lines().find_map(|line| {
         line.strip_prefix(META_PREFIX)
-            .and_then(|json| serde_json::from_str(json).ok())
+            .and_then(|json| serde_json::from_str::<GameConfig>(json).ok())
     }) {
+        let manifest_entries = find_manifest_entries(text);
+        if game.manifest_entries.is_empty() && !manifest_entries.is_empty() {
+            game.manifest_entries = manifest_entries;
+        }
         return Some(game);
     }
     parse_legacy_game_lua(file_name, text)
@@ -1104,17 +1144,24 @@ fn parse_legacy_game_lua(file_name: &str, text: &str) -> Option<GameConfig> {
         .find(|entry| entry.appid == appid)
         .and_then(|entry| entry.depot_key.clone());
 
+    let manifest_entries = find_manifest_entries(text);
+    let manifest_gid = manifest_entries
+        .first()
+        .map(|entry| entry.manifest_gid.clone())
+        .or_else(|| find_first_quoted_arg(text, "setManifestid("));
+
     Some(GameConfig {
         appid,
         name,
         enabled: true,
         depot_key,
         access_token: find_first_quoted_arg(text, "addtoken("),
-        manifest_gid: find_first_quoted_arg(text, "setManifestid("),
+        manifest_gid,
         app_ticket_hex: find_first_quoted_arg(text, "setAppTicket("),
         e_ticket_hex: find_first_quoted_arg(text, "setETicket("),
         stat_steam_id: find_first_quoted_arg(text, "setStat("),
         appid_entries: entries,
+        manifest_entries,
     })
 }
 
@@ -1150,6 +1197,28 @@ fn find_addappid_entries(text: &str) -> Vec<AppIdEntry> {
                 .get(2)
                 .map(|value| value.trim())
                 .and_then(unquote_lua_string),
+        });
+    }
+    entries
+}
+
+fn find_manifest_entries(text: &str) -> Vec<ManifestEntry> {
+    let mut entries = Vec::new();
+    for args in find_call_args(text, "setManifestid(") {
+        let parts = split_lua_args(&args);
+        let Some(depot_id) = parts.first().and_then(|value| value.trim().parse().ok()) else {
+            continue;
+        };
+        let Some(manifest_gid) = parts
+            .get(1)
+            .map(|value| value.trim())
+            .and_then(unquote_lua_string)
+        else {
+            continue;
+        };
+        entries.push(ManifestEntry {
+            depot_id,
+            manifest_gid,
         });
     }
     entries

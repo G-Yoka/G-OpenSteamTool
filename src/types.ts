@@ -47,12 +47,18 @@ export type GameConfig = {
   e_ticket_hex?: string | null;
   stat_steam_id?: string | null;
   appid_entries?: AppIdEntry[];
+  manifest_entries?: ManifestEntry[];
 };
 
 export type AppIdEntry = {
   appid: number;
   unlock_flag?: number | null;
   depot_key?: string | null;
+};
+
+export type ManifestEntry = {
+  depot_id: number;
+  manifest_gid: string;
 };
 
 export type AppMetadata = {

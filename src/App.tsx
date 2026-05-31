@@ -53,7 +53,7 @@ import {
   upsertGame,
 } from "./api";
 import yokaStarMoonFlower from "./assets/yoka-star-moon-flower.png";
-import type { AppIdEntry, DllStatus, DnsLatencyReport, GameConfig, GitHubReleaseInfo, LogFile, ManagerSettings, ScanState, UpdateChannel, UpdateCheckInfo } from "./types";
+import type { AppIdEntry, DllStatus, DnsLatencyReport, GameConfig, GitHubReleaseInfo, LogFile, ManagerSettings, ManifestEntry, ScanState, UpdateChannel, UpdateCheckInfo } from "./types";
 
 type Tab = "overview" | "lua" | "dll" | "settings" | "logs" | "about";
 type Busy = "idle" | "loading" | "saving" | "working";
@@ -86,7 +86,7 @@ const defaultSettings: ManagerSettings = {
 
 const CANVAS_WIDTH = 1260;
 const CANVAS_HEIGHT = 800;
-const APP_VERSION = "0.2.0-beta.1";
+const APP_VERSION = "0.2.0";
 const PROJECT_URL = "https://github.com/G-Yoka/G-OpenSteamTool";
 const DNS_SETTING_KEY = "gost.githubDnsOptimization";
 const AUTO_UPDATE_SETTING_KEY = "gost.autoCheckUpdates";
@@ -110,6 +110,7 @@ const emptyGame: GameConfig = {
   e_ticket_hex: "",
   stat_steam_id: "",
   appid_entries: [],
+  manifest_entries: [],
 };
 
 function App() {
@@ -533,6 +534,18 @@ function normalizeGameForm(game: GameConfig): GameConfig {
       : appid
         ? [{ appid, unlock_flag: null, depot_key: game.depot_key ?? "" }]
         : [];
+  const manifestEntries = (game.manifest_entries ?? [])
+    .map((entry) => ({
+      depot_id: Number(entry.depot_id) || 0,
+      manifest_gid: entry.manifest_gid ?? "",
+    }))
+    .filter((entry) => entry.depot_id > 0 || entry.manifest_gid);
+  const fallbackManifestEntries: ManifestEntry[] =
+    manifestEntries.length > 0
+      ? manifestEntries
+      : appid && game.manifest_gid
+        ? [{ depot_id: appid, manifest_gid: game.manifest_gid }]
+        : [];
 
   return {
     appid,
@@ -545,6 +558,7 @@ function normalizeGameForm(game: GameConfig): GameConfig {
     e_ticket_hex: game.e_ticket_hex ?? "",
     stat_steam_id: game.stat_steam_id ?? "",
     appid_entries: fallbackEntries,
+    manifest_entries: fallbackManifestEntries,
   };
 }
 
@@ -757,13 +771,13 @@ function LuaPanel({
           <div className="form-grid">
             <Field label="应用ID AppId" value={String(form.appid || "")} onChange={(value) => onForm({ ...form, appid: Number(value) || 0 })} />
             <Field label="游戏名称 Name" value={form.name} onChange={(value) => onForm({ ...form, name: value })} />
-            <Field label="访问令牌 Access Token" value={form.access_token ?? ""} onChange={(value) => onForm({ ...form, access_token: value })} />
-            <Field label="清单ID Manifest GID" value={form.manifest_gid ?? ""} onChange={(value) => onForm({ ...form, manifest_gid: value })} />
           </div>
+          <ManifestEntriesEditor form={form} onForm={onForm} />
           <DepotKeysEditor form={form} onForm={onForm} />
           <div className="form-grid">
-            <Field label="应用票据 AppTicket Hex" value={form.app_ticket_hex ?? ""} onChange={(value) => onForm({ ...form, app_ticket_hex: value })} wide />
-            <Field label="加密票据 ETicket Hex" value={form.e_ticket_hex ?? ""} onChange={(value) => onForm({ ...form, e_ticket_hex: value })} wide />
+            <Field label="应用票据 AppTicket Hex" value={form.app_ticket_hex ?? ""} onChange={(value) => onForm({ ...form, app_ticket_hex: value })} />
+            <Field label="加密票据 ETicket Hex" value={form.e_ticket_hex ?? ""} onChange={(value) => onForm({ ...form, e_ticket_hex: value })} />
+            <Field label="访问令牌 Access Token" value={form.access_token ?? ""} onChange={(value) => onForm({ ...form, access_token: value })} />
             <Field label="成就统计 SteamID Stat SteamID" value={form.stat_steam_id ?? ""} onChange={(value) => onForm({ ...form, stat_steam_id: value })} />
           </div>
         </div>
@@ -1210,6 +1224,81 @@ function DepotKeysEditor({ form, onForm }: { form: GameConfig; onForm: (form: Ga
   );
 }
 
+function ManifestEntriesEditor({ form, onForm }: { form: GameConfig; onForm: (form: GameConfig) => void }) {
+  const entries = form.manifest_entries ?? [];
+  const [selectedRows, setSelectedRows] = useState<number[]>([]);
+
+  const updateEntry = (index: number, patch: Partial<ManifestEntry>) => {
+    onForm({
+      ...form,
+      manifest_entries: entries.map((entry, entryIndex) => (entryIndex === index ? { ...entry, ...patch } : entry)),
+    });
+  };
+
+  const toggleRow = (index: number) => {
+    setSelectedRows((current) => (current.includes(index) ? current.filter((item) => item !== index) : [...current, index]));
+  };
+
+  const addManifest = () => {
+    onForm({
+      ...form,
+      manifest_entries: [...entries, { depot_id: 0, manifest_gid: "" }],
+    });
+  };
+
+  const deleteSelected = () => {
+    onForm({
+      ...form,
+      manifest_entries: entries.filter((_, index) => !selectedRows.includes(index)),
+    });
+    setSelectedRows([]);
+  };
+
+  return (
+    <fieldset className="depot-editor manifest-editor">
+      <legend>Manifest 清单 Depots / Manifest GIDs</legend>
+      <div className="depot-toolbar">
+        <button type="button" onClick={addManifest}>
+          添加 Manifest
+        </button>
+        <button type="button" onClick={deleteSelected} disabled={selectedRows.length === 0}>
+          删除选中
+        </button>
+      </div>
+      <div className="depot-table">
+        <div className="depot-table-head">
+          <span />
+          <span>Depot ID</span>
+          <span>Manifest GID</span>
+        </div>
+        {entries.map((entry, index) => (
+          <div className="depot-table-row" key={`${entry.depot_id}-${index}`}>
+            <input
+              aria-label={`选择 Manifest ${index + 1}`}
+              type="checkbox"
+              checked={selectedRows.includes(index)}
+              onChange={() => toggleRow(index)}
+            />
+            <input
+              aria-label="Depot ID"
+              type="number"
+              min={0}
+              value={entry.depot_id || ""}
+              onChange={(event) => updateEntry(index, { depot_id: Number(event.target.value) || 0 })}
+            />
+            <input
+              aria-label="Manifest GID"
+              value={entry.manifest_gid ?? ""}
+              onChange={(event) => updateEntry(index, { manifest_gid: event.target.value })}
+            />
+          </div>
+        ))}
+        {entries.length === 0 && <div className="depot-empty">暂无 Manifest 清单，可按 Depot ID 添加 setManifestid。</div>}
+      </div>
+    </fieldset>
+  );
+}
+
 function NumberField({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
   return (
     <label>
@@ -1550,8 +1639,65 @@ function BetterAboutPanel({ githubDnsOptimization }: { githubDnsOptimization: bo
     }
   }
 
+  const latestVersion = updateInfo?.version ?? releaseInfo?.version ?? null;
+  const versionStatus = latestVersion
+    ? updateInfo?.available || compareVersions(latestVersion, APP_VERSION) > 0
+      ? `${APP_VERSION} → ${latestVersion}`
+      : `${APP_VERSION} → 已是最新`
+    : `${APP_VERSION} → 未检查`;
+  const releaseNotes = trimReleaseNotes(updateInfo?.body || releaseInfo?.body || "");
+
   return (
     <section className="about-page">
+      <section className="panel update-panel">
+        <div className="update-panel-layout">
+          <div className="update-control-column">
+            <PanelTitle icon={Download} title="在线更新" extra={githubDnsOptimization ? "GitHub DoT 已开启" : "GitHub DoT 未开启"} />
+            <div className="update-channel-row">
+              <div>
+                <strong>启用测试版本</strong>
+                <span>这是 Pre-release，适合测试反馈，不建议作为稳定版本依赖。</span>
+              </div>
+              <button
+                className={`toggle-button ${betaUpdates ? "on" : ""}`}
+                aria-pressed={betaUpdates}
+                onClick={() => {
+                  setBetaUpdates((current) => !current);
+                  setUpdateInfo(null);
+                  setReleaseInfo(null);
+                  setUpdateMessage("切换更新通道后请重新检查更新。");
+                }}
+              >
+                <span />
+                {betaUpdates ? "已开启" : "已关闭"}
+              </button>
+            </div>
+            <div className="update-grid">
+              <SummaryLine label="版本状态" value={versionStatus} />
+              <SummaryLine label="发布时间" value={updateInfo?.date ?? releaseInfo?.published_at ?? "未知"} />
+            </div>
+            <p className="update-status-message">{updateMessage}</p>
+            <div className="actions-row">
+              <button className="primary" onClick={handleCheckUpdate} disabled={checking || installing}>
+                <RefreshCcw size={18} />
+                检查更新
+              </button>
+              <button onClick={handleInstallUpdate} disabled={!updateInfo?.available || checking || installing}>
+                <Download size={18} />
+                下载并安装
+              </button>
+              <button onClick={() => void relaunch()} disabled={!hasTauriRuntime()}>
+                <RotateCw size={18} />
+                重启应用
+              </button>
+            </div>
+          </div>
+          <div className="update-notes-column">
+            <h3>更新内容</h3>
+            {releaseNotes ? <pre className="release-notes">{releaseNotes}</pre> : <div className="release-empty">检查更新后会在这里显示 Release notes。</div>}
+          </div>
+        </div>
+      </section>
       <div className="about-card">
         <div className="about-info">
           <PanelTitle icon={Info} title="关于 G-OpenSteamTool" />
@@ -1565,57 +1711,6 @@ function BetterAboutPanel({ githubDnsOptimization }: { githubDnsOptimization: bo
           <img src={yokaStarMoonFlower} alt="Yoka 星月花" />
         </div>
       </div>
-      <section className="panel update-panel">
-        <PanelTitle icon={Download} title="在线更新" extra={githubDnsOptimization ? "GitHub DoT 已开启" : "GitHub DoT 未开启"} />
-        <div className="update-channel-row">
-          <div>
-            <strong>启用测试版本</strong>
-            <span>开启后检查 GitHub Pre-release，并使用 beta-latest.json 下载更新。</span>
-          </div>
-          <button
-            className={`toggle-button ${betaUpdates ? "on" : ""}`}
-            aria-pressed={betaUpdates}
-            onClick={() => {
-              setBetaUpdates((current) => !current);
-              setUpdateInfo(null);
-              setReleaseInfo(null);
-              setUpdateMessage("切换更新通道后请重新检查更新。");
-            }}
-          >
-            <span />
-            {betaUpdates ? "已开启" : "已关闭"}
-          </button>
-        </div>
-        <div className="update-grid">
-          <SummaryLine label="当前版本" value={APP_VERSION} />
-          <SummaryLine label="最新版本" value={updateInfo?.version ?? releaseInfo?.version ?? "未检查"} />
-          <SummaryLine label="发布时间" value={updateInfo?.date ?? releaseInfo?.published_at ?? "未知"} />
-          <SummaryLine label="Release 资源" value={releaseInfo ? `${releaseInfo.assets.length} 个` : "未读取"} />
-        </div>
-        <p className="update-message">{updateMessage}</p>
-        {(updateInfo?.body || releaseInfo?.body) && <pre className="release-notes">{trimReleaseNotes(updateInfo?.body || releaseInfo?.body || "")}</pre>}
-        {releaseInfo?.resolved_hosts?.length ? (
-          <div className="resolved-hosts">
-            {releaseInfo.resolved_hosts.map((host) => (
-              <span key={host.host}>{host.host}: {host.addresses.slice(0, 2).join(", ")}</span>
-            ))}
-          </div>
-        ) : null}
-        <div className="actions-row">
-          <button className="primary" onClick={handleCheckUpdate} disabled={checking || installing}>
-            <RefreshCcw size={18} />
-            检查更新
-          </button>
-          <button onClick={handleInstallUpdate} disabled={!updateInfo?.available || checking || installing}>
-            <Download size={18} />
-            下载并安装
-          </button>
-          <button onClick={() => void relaunch()} disabled={!hasTauriRuntime()}>
-            <RotateCw size={18} />
-            重启应用
-          </button>
-        </div>
-      </section>
     </section>
   );
 }
