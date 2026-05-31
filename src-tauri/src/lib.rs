@@ -1,10 +1,23 @@
 pub mod manager;
 
 use manager::{GameConfig, ManagerSettings};
+use serde::Serialize;
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_updater::UpdaterExt;
 
 type CommandResult<T> = Result<T, String>;
+
+#[derive(Debug, Clone, Serialize)]
+struct UpdateCheckInfo {
+    channel: String,
+    available: bool,
+    version: String,
+    current_version: String,
+    date: Option<String>,
+    body: Option<String>,
+    release: Option<manager::GitHubReleaseInfo>,
+}
 
 #[tauri::command]
 fn detect_steam_dir() -> CommandResult<Option<String>> {
@@ -112,6 +125,129 @@ async fn resolve_github_domain_with_dot(host: String) -> CommandResult<Vec<Strin
 }
 
 #[tauri::command]
+async fn test_github_dns_latency(host: String) -> CommandResult<manager::DnsLatencyReport> {
+    manager::test_github_dns_latency(&host).await
+}
+
+#[tauri::command]
+async fn check_update_channel(
+    app: tauri::AppHandle,
+    channel: String,
+    dot_enabled: bool,
+) -> CommandResult<UpdateCheckInfo> {
+    let (endpoint, release) = update_endpoint_for_channel(&channel, dot_enabled).await?;
+    let mut builder = app
+        .updater_builder()
+        .endpoints(vec![
+            reqwest::Url::parse(&endpoint).map_err(|err| err.to_string())?
+        ])
+        .map_err(|err| err.to_string())?;
+
+    if channel == "beta" {
+        builder = builder.version_comparator(|current, update| update.version != current);
+    }
+
+    let update = builder
+        .build()
+        .map_err(|err| err.to_string())?
+        .check()
+        .await
+        .map_err(|err| describe_update_error(&err.to_string()))?;
+
+    Ok(if let Some(update) = update {
+        UpdateCheckInfo {
+            channel,
+            available: true,
+            version: update.version,
+            current_version: update.current_version,
+            date: update.date.map(|date| date.to_string()),
+            body: update.body,
+            release,
+        }
+    } else {
+        let version = release
+            .as_ref()
+            .map(|release| release.version.clone())
+            .unwrap_or_else(|| "0.2.0-beta.1".to_string());
+        UpdateCheckInfo {
+            channel,
+            available: false,
+            version,
+            current_version: app.package_info().version.to_string(),
+            date: release
+                .as_ref()
+                .and_then(|release| release.published_at.clone()),
+            body: release.as_ref().map(|release| release.body.clone()),
+            release,
+        }
+    })
+}
+
+#[tauri::command]
+async fn install_update_channel(
+    app: tauri::AppHandle,
+    channel: String,
+    dot_enabled: bool,
+) -> CommandResult<()> {
+    let (endpoint, _) = update_endpoint_for_channel(&channel, dot_enabled).await?;
+    let mut builder = app
+        .updater_builder()
+        .endpoints(vec![
+            reqwest::Url::parse(&endpoint).map_err(|err| err.to_string())?
+        ])
+        .map_err(|err| err.to_string())?;
+
+    if channel == "beta" {
+        builder = builder.version_comparator(|current, update| update.version != current);
+    }
+
+    let Some(update) = builder
+        .build()
+        .map_err(|err| err.to_string())?
+        .check()
+        .await
+        .map_err(|err| describe_update_error(&err.to_string()))?
+    else {
+        return Err("当前通道没有可安装更新".into());
+    };
+
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|err| err.to_string())
+}
+
+async fn update_endpoint_for_channel(
+    channel: &str,
+    dot_enabled: bool,
+) -> CommandResult<(String, Option<manager::GitHubReleaseInfo>)> {
+    match channel {
+        "stable" => Ok((manager::STABLE_UPDATE_ENDPOINT.to_string(), None)),
+        "beta" => {
+            let release = manager::check_github_beta_release(dot_enabled).await?;
+            let endpoint = manager::release_asset_url(&release, manager::BETA_UPDATE_METADATA)
+                .ok_or_else(|| "GitHub Pre-release 中未找到 beta-latest.json".to_string())?;
+            Ok((endpoint, Some(release)))
+        }
+        other => Err(format!("Unsupported update channel: {other}")),
+    }
+}
+
+fn describe_update_error(error: &str) -> String {
+    if error.contains("Could not fetch a valid release JSON")
+        || error.contains("latest.json")
+        || error.contains("404")
+    {
+        "未找到 latest.json，请在 GitHub Release 上传 Tauri updater metadata 后再使用正式更新"
+            .into()
+    } else if error.contains("beta-latest.json") {
+        "未找到 beta-latest.json，请在 GitHub Pre-release 上传测试版 updater metadata".into()
+    } else {
+        error.to_string()
+    }
+}
+
+#[tauri::command]
 fn close_steam() -> CommandResult<()> {
     manager::close_steam()
 }
@@ -168,6 +304,9 @@ pub fn run() {
             read_logs,
             check_github_release,
             resolve_github_domain_with_dot,
+            test_github_dns_latency,
+            check_update_channel,
+            install_update_channel,
             close_steam,
             restart_steam,
             minimize_window,

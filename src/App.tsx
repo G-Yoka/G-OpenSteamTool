@@ -3,6 +3,7 @@ import {
   BookOpen,
   Box,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   Code2,
   Download,
@@ -22,7 +23,6 @@ import {
   XCircle,
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent } from "react";
@@ -30,11 +30,13 @@ import {
   closeSteam,
   closeWindow,
   checkGithubRelease,
+  checkUpdateChannel,
   deleteGame,
   detectSteamDir,
   fetchAppMetadata,
   importLuaFile,
   installDlls,
+  installUpdateChannel,
   listGames,
   loadSettings,
   minimizeWindow,
@@ -46,11 +48,12 @@ import {
   saveSettings,
   scanState,
   setGameEnabled,
+  testGithubDnsLatency,
   toggleMaximizeWindow,
   upsertGame,
 } from "./api";
 import yokaStarMoonFlower from "./assets/yoka-star-moon-flower.png";
-import type { AppIdEntry, DllStatus, GameConfig, GitHubReleaseInfo, LogFile, ManagerSettings, ScanState } from "./types";
+import type { AppIdEntry, DllStatus, DnsLatencyReport, GameConfig, GitHubReleaseInfo, LogFile, ManagerSettings, ScanState, UpdateChannel, UpdateCheckInfo } from "./types";
 
 type Tab = "overview" | "lua" | "dll" | "settings" | "logs" | "about";
 type Busy = "idle" | "loading" | "saving" | "working";
@@ -83,9 +86,11 @@ const defaultSettings: ManagerSettings = {
 
 const CANVAS_WIDTH = 1260;
 const CANVAS_HEIGHT = 800;
-const APP_VERSION = "0.2.0";
+const APP_VERSION = "0.2.0-beta.1";
 const PROJECT_URL = "https://github.com/G-Yoka/G-OpenSteamTool";
 const DNS_SETTING_KEY = "gost.githubDnsOptimization";
+const AUTO_UPDATE_SETTING_KEY = "gost.autoCheckUpdates";
+const BETA_UPDATE_SETTING_KEY = "gost.betaUpdates";
 const hasTauriRuntime = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 const initialConsole: ConsoleState = {
@@ -119,10 +124,12 @@ function App() {
   const [gameForm, setGameForm] = useState<GameConfig>(emptyGame);
   const [luaPathsText, setLuaPathsText] = useState("");
   const [githubDnsOptimization, setGithubDnsOptimization] = useState(() => window.localStorage.getItem(DNS_SETTING_KEY) === "1");
+  const [autoCheckUpdates, setAutoCheckUpdates] = useState(() => window.localStorage.getItem(AUTO_UPDATE_SETTING_KEY) === "1");
   const [consoleState, setConsoleState] = useState<ConsoleState>(initialConsole);
   const [busy, setBusy] = useState<Busy>("idle");
 
   const consoleTimer = useRef<number | null>(null);
+  const autoCheckStarted = useRef(false);
   const dllSummary = useMemo(() => summarizeDllOverview(state?.dlls ?? []), [state]);
   const activeLog = logs.find((log) => log.name === selectedLog) ?? logs[0];
 
@@ -149,6 +156,16 @@ function App() {
   useEffect(() => {
     window.localStorage.setItem(DNS_SETTING_KEY, githubDnsOptimization ? "1" : "0");
   }, [githubDnsOptimization]);
+
+  useEffect(() => {
+    window.localStorage.setItem(AUTO_UPDATE_SETTING_KEY, autoCheckUpdates ? "1" : "0");
+  }, [autoCheckUpdates]);
+
+  useEffect(() => {
+    if (!autoCheckUpdates || autoCheckStarted.current) return;
+    autoCheckStarted.current = true;
+    void autoCheckRelease();
+  }, [autoCheckUpdates, githubDnsOptimization]);
 
   async function boot() {
     setBusy("loading");
@@ -309,6 +326,19 @@ function App() {
     }
   }
 
+  async function autoCheckRelease() {
+    try {
+      const release = await checkGithubRelease(githubDnsOptimization);
+      if (compareVersions(release.version, APP_VERSION) > 0) {
+        pushConsole("success", `发现新版本 ${release.version}，可在关于页在线更新中查看`);
+      } else {
+        pushConsole("idle", "自动检查更新：当前已是最新版本");
+      }
+    } catch (err) {
+      pushConsole("error", `自动检查更新失败：${String(err)}`);
+    }
+  }
+
   function handleHeaderMouseDown(event: MouseEvent<HTMLElement>) {
     if (event.button !== 0 || !hasTauriRuntime()) return;
     if ((event.target as HTMLElement).closest(".window-actions")) return;
@@ -374,6 +404,7 @@ function App() {
               steamDir={steamDir}
               state={state}
               settings={settings}
+              githubDnsOptimization={githubDnsOptimization}
               games={games}
               onChoose={chooseSteamDir}
               onRefresh={() => refreshAll()}
@@ -429,9 +460,11 @@ function App() {
               settings={settings}
               luaPathsText={luaPathsText}
               githubDnsOptimization={githubDnsOptimization}
+              autoCheckUpdates={autoCheckUpdates}
               onSettings={setSettings}
               onLuaPathsText={setLuaPathsText}
               onGithubDnsOptimization={setGithubDnsOptimization}
+              onAutoCheckUpdates={setAutoCheckUpdates}
               onSave={saveCurrentSettings}
             />
           )}
@@ -540,6 +573,7 @@ function Overview({
   steamDir,
   state,
   settings,
+  githubDnsOptimization,
   games,
   onChoose,
   onRefresh,
@@ -551,6 +585,7 @@ function Overview({
   steamDir: string;
   state: ScanState | null;
   settings: ManagerSettings;
+  githubDnsOptimization: boolean;
   games: GameConfig[];
   onChoose: () => void;
   onRefresh: () => void;
@@ -616,7 +651,7 @@ function Overview({
 
       <section className="panel settings-summary">
         <PanelTitle icon={Settings} title="设置概览" />
-        <SummaryLine label="清单来源" value={settings.manifest_url} />
+        <SummaryLine label="GitHub DNS 优化" value={githubDnsOptimization ? "已开启" : "已关闭"} />
         <SummaryLine label="日志等级" value={settings.log_level} />
         <SummaryLine label="额外 Lua 路径" value={`${settings.lua_paths.length} 条`} />
         <SummaryLine label="签名镜像" value={settings.pattern_mirror || "默认"} />
@@ -782,71 +817,189 @@ function SettingsPanel({
   settings,
   luaPathsText,
   githubDnsOptimization,
+  autoCheckUpdates,
   onSettings,
   onLuaPathsText,
   onGithubDnsOptimization,
+  onAutoCheckUpdates,
   onSave,
 }: {
   settings: ManagerSettings;
   luaPathsText: string;
   githubDnsOptimization: boolean;
+  autoCheckUpdates: boolean;
   onSettings: (settings: ManagerSettings) => void;
   onLuaPathsText: (text: string) => void;
   onGithubDnsOptimization: (enabled: boolean) => void;
+  onAutoCheckUpdates: (enabled: boolean) => void;
   onSave: () => void;
 }) {
+  const [settingsTab, setSettingsTab] = useState<"app" | "toml">("app");
+  const [dnsLatencyBusy, setDnsLatencyBusy] = useState(false);
+  const [dnsLatencyExpanded, setDnsLatencyExpanded] = useState(false);
+  const [dnsLatencyReport, setDnsLatencyReport] = useState<DnsLatencyReport | null>(null);
+  const [dnsLatencyError, setDnsLatencyError] = useState("");
+
+  async function handleDnsLatencyTest() {
+    setDnsLatencyExpanded(true);
+    setDnsLatencyBusy(true);
+    setDnsLatencyError("");
+    try {
+      setDnsLatencyReport(await testGithubDnsLatency("api.github.com"));
+    } catch (err) {
+      setDnsLatencyError(String(err));
+    } finally {
+      setDnsLatencyBusy(false);
+    }
+  }
+
   return (
-    <section className="panel">
-      <PanelTitle icon={Settings} title="opensteamtool.toml" extra="保存后重启 Steam 生效" />
-      <div className="form-grid settings-grid">
-        <label>
-          日志等级
-          <select value={settings.log_level} onChange={(event) => onSettings({ ...settings, log_level: event.target.value })}>
-            {["trace", "debug", "info", "warn", "error"].map((level) => (
-              <option key={level}>{level}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Manifest 来源
-          <select value={settings.manifest_url} onChange={(event) => onSettings({ ...settings, manifest_url: event.target.value })}>
-            <option value="wudrm">wudrm</option>
-            <option value="steamrun">steamrun</option>
-          </select>
-        </label>
-        <NumberField label="解析超时 Resolve Timeout" value={settings.timeout_resolve_ms} onChange={(value) => onSettings({ ...settings, timeout_resolve_ms: value })} />
-        <NumberField label="连接超时 Connect Timeout" value={settings.timeout_connect_ms} onChange={(value) => onSettings({ ...settings, timeout_connect_ms: value })} />
-        <NumberField label="发送超时 Send Timeout" value={settings.timeout_send_ms} onChange={(value) => onSettings({ ...settings, timeout_send_ms: value })} />
-        <NumberField label="接收超时 Recv Timeout" value={settings.timeout_recv_ms} onChange={(value) => onSettings({ ...settings, timeout_recv_ms: value })} />
-        <label className="wide">
-          签名镜像 Pattern Mirror
-          <input value={settings.pattern_mirror} onChange={(event) => onSettings({ ...settings, pattern_mirror: event.target.value })} placeholder="默认留空" />
-        </label>
-        <label className="wide">
-          额外 Lua 路径 Lua Paths
-          <textarea value={luaPathsText} onChange={(event) => onLuaPathsText(event.target.value)} placeholder="每行一个路径" />
-        </label>
-      </div>
-      <div className="settings-option">
-        <div>
-          <strong>GitHub DNS 优化</strong>
-          <span>仅应用内 GitHub Release 检查使用 DoT；不修改系统 DNS、hosts 或代理。</span>
-        </div>
-        <button
-          className={`toggle-button ${githubDnsOptimization ? "on" : ""}`}
-          aria-pressed={githubDnsOptimization}
-          onClick={() => onGithubDnsOptimization(!githubDnsOptimization)}
-        >
-          <span />
-          {githubDnsOptimization ? "已开启" : "已关闭"}
+    <section className="settings-page">
+      <aside className="settings-sidebar panel">
+        <button className={settingsTab === "app" ? "active" : ""} onClick={() => setSettingsTab("app")}>
+          <Activity size={18} />
+          应用设置
         </button>
-      </div>
-      <div className="actions-row">
-        <button className="primary" onClick={onSave}>
-          <Save size={18} />
-          保存 TOML
+        <button className={settingsTab === "toml" ? "active" : ""} onClick={() => setSettingsTab("toml")}>
+          <Settings size={18} />
+          TOML
         </button>
-      </div>
+      </aside>
+      <section className="panel settings-content-panel">
+        {settingsTab === "toml" ? (
+          <>
+            <PanelTitle icon={Settings} title="opensteamtool.toml" extra="保存后重启 Steam 生效" />
+            <div className="form-grid settings-grid">
+              <label>
+                日志等级
+                <select value={settings.log_level} onChange={(event) => onSettings({ ...settings, log_level: event.target.value })}>
+                  {["trace", "debug", "info", "warn", "error"].map((level) => (
+                    <option key={level}>{level}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Manifest 来源
+                <select value={settings.manifest_url} onChange={(event) => onSettings({ ...settings, manifest_url: event.target.value })}>
+                  <option value="wudrm">wudrm</option>
+                  <option value="steamrun">steamrun</option>
+                </select>
+              </label>
+              <NumberField label="解析超时 Resolve Timeout" value={settings.timeout_resolve_ms} onChange={(value) => onSettings({ ...settings, timeout_resolve_ms: value })} />
+              <NumberField label="连接超时 Connect Timeout" value={settings.timeout_connect_ms} onChange={(value) => onSettings({ ...settings, timeout_connect_ms: value })} />
+              <NumberField label="发送超时 Send Timeout" value={settings.timeout_send_ms} onChange={(value) => onSettings({ ...settings, timeout_send_ms: value })} />
+              <NumberField label="接收超时 Recv Timeout" value={settings.timeout_recv_ms} onChange={(value) => onSettings({ ...settings, timeout_recv_ms: value })} />
+              <label className="wide">
+                签名镜像 Pattern Mirror
+                <input value={settings.pattern_mirror} onChange={(event) => onSettings({ ...settings, pattern_mirror: event.target.value })} placeholder="默认留空" />
+              </label>
+              <label className="wide">
+                额外 Lua 路径 Lua Paths
+                <textarea value={luaPathsText} onChange={(event) => onLuaPathsText(event.target.value)} placeholder="每行一个路径" />
+              </label>
+            </div>
+            <div className="actions-row">
+              <button className="primary" onClick={onSave}>
+                <Save size={18} />
+                保存 TOML
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <PanelTitle icon={Activity} title="应用设置" />
+            <div className="app-settings-stack">
+              <div className="app-setting-card">
+                <div className="app-setting-card-head">
+                  <div>
+                    <strong>GitHub DNS 优化</strong>
+                    <span>仅应用内生效，用于 GitHub Release 检查与诊断请求。</span>
+                  </div>
+                  <button
+                    className={`toggle-button ${githubDnsOptimization ? "on" : ""}`}
+                    aria-pressed={githubDnsOptimization}
+                    onClick={() => onGithubDnsOptimization(!githubDnsOptimization)}
+                  >
+                    <span />
+                    {githubDnsOptimization ? "已开启" : "已关闭"}
+                  </button>
+                </div>
+                <div className={`dns-latency-section ${dnsLatencyExpanded ? "expanded" : ""}`}>
+                  <div
+                    className="dns-latency-head"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setDnsLatencyExpanded((current) => !current)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setDnsLatencyExpanded((current) => !current);
+                      }
+                    }}
+                    aria-expanded={dnsLatencyExpanded}
+                  >
+                    <span>
+                      {dnsLatencyExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                      DNS 延迟检测
+                    </span>
+                    <button
+                      className="ghost compact"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleDnsLatencyTest();
+                      }}
+                      disabled={dnsLatencyBusy}
+                    >
+                      <RefreshCcw size={15} />
+                      {dnsLatencyBusy ? "检测中" : "检测延迟"}
+                    </button>
+                  </div>
+                  {dnsLatencyExpanded && (
+                    <>
+                      {dnsLatencyError && <p className="inline-error">{dnsLatencyError}</p>}
+                      <div className="dns-latency-grid">
+                        {(dnsLatencyReport?.results ?? [
+                          { provider: "Cloudflare", address: "1.1.1.1", latency_ms: null, ok: false },
+                          { provider: "Google", address: "8.8.8.8", latency_ms: null, ok: false },
+                          { provider: "AliDNS", address: "223.5.5.5", latency_ms: null, ok: false },
+                          { provider: "AliDNS", address: "223.6.6.6", latency_ms: null, ok: false },
+                          { provider: "DNSPod", address: "1.12.12.12", latency_ms: null, ok: false },
+                          { provider: "DNSPod", address: "120.53.53.53", latency_ms: null, ok: false },
+                        ])
+                          .slice()
+                          .sort((left, right) => Number(!left.ok) - Number(!right.ok) || (left.latency_ms ?? Number.MAX_SAFE_INTEGER) - (right.latency_ms ?? Number.MAX_SAFE_INTEGER))
+                          .map((result) => (
+                            <div className={`dns-latency-card ${result.ok ? "ok" : dnsLatencyReport ? "error" : ""}`} key={`${result.provider}-${result.address}`}>
+                              <span>{result.provider}</span>
+                              <strong>{result.latency_ms != null ? `${result.latency_ms} ms` : dnsLatencyReport ? "失败" : "未检测"}</strong>
+                              <small>{result.address}</small>
+                            </div>
+                          ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="app-setting-card">
+                <div className="app-setting-card-head">
+                  <div>
+                    <strong>启动时自动检查更新</strong>
+                    <span>开启软件后仅检查 GitHub Releases，并在状态控制台提示；不会自动下载或安装。</span>
+                  </div>
+                  <button
+                    className={`toggle-button ${autoCheckUpdates ? "on" : ""}`}
+                    aria-pressed={autoCheckUpdates}
+                    onClick={() => onAutoCheckUpdates(!autoCheckUpdates)}
+                  >
+                    <span />
+                    {autoCheckUpdates ? "已开启" : "已关闭"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </section>
     </section>
   );
 }
@@ -1231,10 +1384,13 @@ function BetterLogsPanel({
             <input type="checkbox" checked={wrap} onChange={(event) => setWrap(event.target.checked)} />
             换行
           </label>
-          <label>
-            <input type="checkbox" checked={autoScroll} onChange={(event) => setAutoScroll(event.target.checked)} />
+          <button
+            className={`log-toolbar-button ${autoScroll ? "active" : ""}`}
+            aria-pressed={autoScroll}
+            onClick={() => setAutoScroll((current) => !current)}
+          >
             滚底
-          </label>
+          </button>
         </div>
         <div className={`log-lines ${wrap ? "wrap" : ""}`} ref={viewerRef}>
           {active ? (
@@ -1258,16 +1414,58 @@ function parseLogRows(content: string): ParsedLogRow[] {
   return content
     .split(/\r?\n/)
     .filter((line) => line.length > 0)
-    .map((line) => {
-      const match = line.match(/^(?<time>\d{4}[-/]\d{2}[-/]\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?|\d{2}:\d{2}:\d{2}(?:\.\d+)?)?\s*(?:\[?(?<level>trace|debug|info|warn|warning|error|fatal)\]?)?\s*(?<message>.*)$/i);
-      const parsedLevel = match?.groups?.level?.toLowerCase() ?? null;
-      return {
-        raw: line,
-        time: match?.groups?.time ?? "",
-        level: parsedLevel === "warning" || parsedLevel === "fatal" ? (parsedLevel === "fatal" ? "error" : "warn") : parsedLevel,
-        message: match?.groups?.message?.trim() || line,
-      };
-    });
+    .map(parseLogRow);
+}
+
+function parseLogRow(line: string): ParsedLogRow {
+  const bracketHeader = line.match(
+    /^\[(?<time>\d{4}[-/]\d{2}[-/]\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?)\]\s+\[(?<level>trace|debug|info|warn|warning|error|fatal)\](?:\s+\[(?<thread>[^\]]+)\])?\s*(?<message>.*)$/i,
+  );
+  if (bracketHeader?.groups) {
+    const thread = bracketHeader.groups.thread ? `[${bracketHeader.groups.thread}]` : "";
+    const message = [thread, bracketHeader.groups.message?.trim()].filter(Boolean).join(" ");
+    return {
+      raw: line,
+      time: bracketHeader.groups.time,
+      level: normalizeLogLevel(bracketHeader.groups.level),
+      message: message || line,
+    };
+  }
+
+  const timeMatch = line.match(/^(?<time>\d{4}[-/]\d{2}[-/]\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?|\d{2}:\d{2}:\d{2}(?:[.,]\d+)?)\s*/);
+  const time = timeMatch?.groups?.time ?? "";
+  const withoutTime = time ? line.slice(timeMatch?.[0].length ?? 0).trimStart() : line.trimStart();
+  const levelPattern = /^(?:\[(?<bracket>trace|debug|info|warn|warning|error|fatal)\]|(?<plain>trace|debug|info|warn|warning|error|fatal))\s*(?:[:：\-|]\s*)?/i;
+  const levelMatch = withoutTime.match(levelPattern);
+  const parsedLevel = normalizeLogLevel(levelMatch?.groups?.bracket ?? levelMatch?.groups?.plain ?? null);
+  const message = levelMatch ? withoutTime.slice(levelMatch[0].length).trim() : withoutTime;
+
+  return {
+    raw: line,
+    time,
+    level: parsedLevel,
+    message: message || line,
+  };
+}
+
+function normalizeLogLevel(level?: string | null) {
+  if (!level) return null;
+  const normalized = level.toLowerCase();
+  if (normalized === "warning") return "warn";
+  if (normalized === "fatal") return "error";
+  if (["trace", "debug", "info", "warn", "error"].includes(normalized)) return normalized;
+  return null;
+}
+
+function describeUpdaterError(err: unknown) {
+  const text = String(err);
+  if (text.includes("beta-latest.json") || text.includes("Pre-release")) {
+    return "未找到 beta-latest.json，请在 GitHub Pre-release 上传测试版 updater metadata";
+  }
+  if (text.includes("Could not fetch a valid release JSON") || text.includes("latest.json") || text.includes("404")) {
+    return "未找到 latest.json，请在 GitHub Release 上传 Tauri updater metadata 后再使用正式更新";
+  }
+  return `正式更新检查失败，正在使用 GitHub API 诊断：${text}`;
 }
 
 function formatBytes(bytes?: number) {
@@ -1290,54 +1488,60 @@ function formatLogTime(value?: number | null) {
 function BetterAboutPanel({ githubDnsOptimization }: { githubDnsOptimization: boolean }) {
   const [checking, setChecking] = useState(false);
   const [installing, setInstalling] = useState(false);
+  const [betaUpdates, setBetaUpdates] = useState(() => window.localStorage.getItem(BETA_UPDATE_SETTING_KEY) === "1");
   const [updateMessage, setUpdateMessage] = useState("使用 GitHub Releases 检查正式版本。");
-  const [updateInfo, setUpdateInfo] = useState<{ version: string; date?: string | null; body?: string; available: boolean } | null>(null);
+  const [updateInfo, setUpdateInfo] = useState<UpdateCheckInfo | null>(null);
   const [releaseInfo, setReleaseInfo] = useState<GitHubReleaseInfo | null>(null);
-  const updateRef = useRef<Update | null>(null);
+
+  useEffect(() => {
+    window.localStorage.setItem(BETA_UPDATE_SETTING_KEY, betaUpdates ? "1" : "0");
+  }, [betaUpdates]);
+
+  const updateChannel: UpdateChannel = betaUpdates ? "beta" : "stable";
 
   async function handleCheckUpdate() {
     setChecking(true);
-    setUpdateMessage("正在检查 GitHub Releases...");
+    setUpdateMessage(betaUpdates ? "正在检查 GitHub 测试版本..." : "正在检查 GitHub 正式版本...");
     setUpdateInfo(null);
     setReleaseInfo(null);
-    updateRef.current = null;
+    let directUpdateAvailable = false;
     try {
-      const update = hasTauriRuntime() ? await check() : null;
-      if (update?.available) {
-        updateRef.current = update;
-        setUpdateInfo({ version: update.version, date: update.date, body: update.body, available: true });
-        setUpdateMessage(`发现新版本 ${update.version}`);
+      const update = await checkUpdateChannel(updateChannel, githubDnsOptimization);
+      directUpdateAvailable = update.available;
+      setUpdateInfo(update);
+      if (update.release) setReleaseInfo(update.release);
+      if (update.available) {
+        setUpdateMessage(`发现${betaUpdates ? "测试" : "正式"}版本 ${update.version}`);
       } else {
-        setUpdateInfo({ version: APP_VERSION, available: false });
-        setUpdateMessage("当前已是最新版本。");
+        setUpdateMessage(betaUpdates ? "当前测试通道已是最新版本。" : "当前正式通道已是最新版本。");
       }
     } catch (err) {
-      setUpdateMessage(`正式更新检查失败，正在使用 GitHub API 诊断：${String(err)}`);
+      setUpdateMessage(describeUpdaterError(err));
     }
 
-    try {
-      const release = await checkGithubRelease(githubDnsOptimization);
-      setReleaseInfo(release);
-      if (!updateRef.current && compareVersions(release.version, APP_VERSION) > 0) {
-        setUpdateInfo({ version: release.version, date: release.published_at, body: release.body, available: true });
-        setUpdateMessage(`GitHub Releases 有新版本 ${release.version}；可在 Release 页面手动下载。`);
+    if (!betaUpdates) {
+      try {
+        const release = await checkGithubRelease(githubDnsOptimization);
+        setReleaseInfo(release);
+        if (!directUpdateAvailable && compareVersions(release.version, APP_VERSION) > 0) {
+          setUpdateMessage(`GitHub Releases 有新版本 ${release.version}；可在 Release 页面手动下载。`);
+        }
+      } catch (err) {
+        setUpdateMessage((current) => `${current}\nGitHub API 诊断失败：${String(err)}`);
       }
-    } catch (err) {
-      setUpdateMessage((current) => `${current}\nGitHub API 诊断失败：${String(err)}`);
-    } finally {
-      setChecking(false);
     }
+    setChecking(false);
   }
 
   async function handleInstallUpdate() {
-    if (!updateRef.current) {
-      setUpdateMessage("当前没有可直接安装的 updater 包；请确认 Release 已上传 latest.json 与签名安装包。");
+    if (!updateInfo?.available) {
+      setUpdateMessage(betaUpdates ? "当前没有可直接安装的测试版更新。" : "当前没有可直接安装的正式版更新。");
       return;
     }
     setInstalling(true);
-    setUpdateMessage("正在下载并安装更新...");
+    setUpdateMessage(betaUpdates ? "正在下载并安装测试版本..." : "正在下载并安装正式版本...");
     try {
-      await updateRef.current.downloadAndInstall();
+      await installUpdateChannel(updateChannel, githubDnsOptimization);
       setUpdateMessage("更新已安装，点击重启应用完成切换。");
     } catch (err) {
       setUpdateMessage(`更新安装失败：${String(err)}`);
@@ -1363,6 +1567,25 @@ function BetterAboutPanel({ githubDnsOptimization }: { githubDnsOptimization: bo
       </div>
       <section className="panel update-panel">
         <PanelTitle icon={Download} title="在线更新" extra={githubDnsOptimization ? "GitHub DoT 已开启" : "GitHub DoT 未开启"} />
+        <div className="update-channel-row">
+          <div>
+            <strong>启用测试版本</strong>
+            <span>开启后检查 GitHub Pre-release，并使用 beta-latest.json 下载更新。</span>
+          </div>
+          <button
+            className={`toggle-button ${betaUpdates ? "on" : ""}`}
+            aria-pressed={betaUpdates}
+            onClick={() => {
+              setBetaUpdates((current) => !current);
+              setUpdateInfo(null);
+              setReleaseInfo(null);
+              setUpdateMessage("切换更新通道后请重新检查更新。");
+            }}
+          >
+            <span />
+            {betaUpdates ? "已开启" : "已关闭"}
+          </button>
+        </div>
         <div className="update-grid">
           <SummaryLine label="当前版本" value={APP_VERSION} />
           <SummaryLine label="最新版本" value={updateInfo?.version ?? releaseInfo?.version ?? "未检查"} />
@@ -1383,7 +1606,7 @@ function BetterAboutPanel({ githubDnsOptimization }: { githubDnsOptimization: bo
             <RefreshCcw size={18} />
             检查更新
           </button>
-          <button onClick={handleInstallUpdate} disabled={!updateRef.current || checking || installing}>
+          <button onClick={handleInstallUpdate} disabled={!updateInfo?.available || checking || installing}>
             <Download size={18} />
             下载并安装
           </button>

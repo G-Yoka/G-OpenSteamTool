@@ -6,11 +6,11 @@ use std::{
     ffi::OsStr,
     fs,
     io::Read,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::{IpAddr, SocketAddr},
     path::{Path, PathBuf},
     process::Command,
     thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::path::BaseDirectory;
 use tauri::Manager;
@@ -153,6 +153,7 @@ pub struct GitHubReleaseInfo {
     pub body: String,
     pub html_url: String,
     pub assets: Vec<GitHubReleaseAsset>,
+    pub prerelease: bool,
     pub dns_optimized: bool,
     pub resolved_hosts: Vec<ResolvedHost>,
 }
@@ -167,6 +168,33 @@ pub struct GitHubReleaseAsset {
 pub struct ResolvedHost {
     pub host: String,
     pub addresses: Vec<String>,
+}
+
+pub const STABLE_UPDATE_ENDPOINT: &str =
+    "https://github.com/G-Yoka/G-OpenSteamTool/releases/latest/download/latest.json";
+pub const BETA_UPDATE_METADATA: &str = "beta-latest.json";
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DnsLatencyReport {
+    pub host: String,
+    pub results: Vec<DnsLatencyResult>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DnsLatencyResult {
+    pub provider: String,
+    pub address: String,
+    pub latency_ms: Option<u64>,
+    pub ok: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DnsProviderSpec {
+    pub provider: &'static str,
+    pub address: &'static str,
+    pub server_name: &'static str,
+    pub path: &'static str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -593,46 +621,214 @@ pub fn github_domains_for_optimization() -> Vec<&'static str> {
     ]
 }
 
+pub fn github_dns_latency_providers() -> Vec<DnsProviderSpec> {
+    vec![
+        DnsProviderSpec {
+            provider: "Cloudflare",
+            address: "1.1.1.1",
+            server_name: "cloudflare-dns.com",
+            path: "/dns-query",
+        },
+        DnsProviderSpec {
+            provider: "Google",
+            address: "8.8.8.8",
+            server_name: "dns.google",
+            path: "/dns-query",
+        },
+        DnsProviderSpec {
+            provider: "AliDNS",
+            address: "223.5.5.5",
+            server_name: "dns.alidns.com",
+            path: "/dns-query",
+        },
+        DnsProviderSpec {
+            provider: "AliDNS",
+            address: "223.6.6.6",
+            server_name: "dns.alidns.com",
+            path: "/dns-query",
+        },
+        DnsProviderSpec {
+            provider: "DNSPod",
+            address: "1.12.12.12",
+            server_name: "dot.pub",
+            path: "/dns-query",
+        },
+        DnsProviderSpec {
+            provider: "DNSPod",
+            address: "120.53.53.53",
+            server_name: "dot.pub",
+            path: "/dns-query",
+        },
+    ]
+}
+
+pub async fn test_github_dns_latency(host: &str) -> Result<DnsLatencyReport> {
+    if !github_domains_for_optimization().contains(&host) {
+        return Err(format!("Unsupported GitHub host: {host}"));
+    }
+
+    let providers = github_dns_latency_providers();
+    let (cloudflare, google, ali_primary, ali_secondary, dnspod_primary, dnspod_secondary) = tokio::join!(
+        measure_dot_latency(host, providers[0]),
+        measure_dot_latency(host, providers[1]),
+        measure_dot_latency(host, providers[2]),
+        measure_dot_latency(host, providers[3]),
+        measure_dot_latency(host, providers[4]),
+        measure_dot_latency(host, providers[5])
+    );
+    let mut results = vec![
+        cloudflare,
+        google,
+        ali_primary,
+        ali_secondary,
+        dnspod_primary,
+        dnspod_secondary,
+    ];
+    sort_dns_latency_results(&mut results);
+
+    Ok(DnsLatencyReport {
+        host: host.to_string(),
+        results,
+    })
+}
+
+async fn measure_dot_latency(host: &str, provider: DnsProviderSpec) -> DnsLatencyResult {
+    let start = Instant::now();
+    match resolve_with_dot_provider(host, provider).await {
+        Ok(_) => DnsLatencyResult {
+            provider: provider.provider.to_string(),
+            address: provider.address.to_string(),
+            latency_ms: Some(start.elapsed().as_millis().min(u128::from(u64::MAX)) as u64),
+            ok: true,
+            error: None,
+        },
+        Err(err) => DnsLatencyResult {
+            provider: provider.provider.to_string(),
+            address: provider.address.to_string(),
+            latency_ms: None,
+            ok: false,
+            error: Some(err),
+        },
+    }
+}
+
+fn sort_dns_latency_results(results: &mut [DnsLatencyResult]) {
+    results.sort_by_key(|result| {
+        (
+            !result.ok,
+            result.latency_ms.unwrap_or(u64::MAX),
+            result.provider.clone(),
+            result.address.clone(),
+        )
+    });
+}
+
 pub async fn resolve_github_domain_with_dot(host: &str) -> Result<Vec<String>> {
     if !github_domains_for_optimization().contains(&host) {
         return Err(format!("Unsupported GitHub host: {host}"));
     }
 
-    let mut cloudflare = tauri::async_runtime::spawn({
+    let mut tasks = tokio::task::JoinSet::new();
+    for provider in github_dns_latency_providers() {
         let host = host.to_string();
-        async move { resolve_with_dot_provider(&host, true).await }
-    });
-    let mut google = tauri::async_runtime::spawn({
-        let host = host.to_string();
-        async move { resolve_with_dot_provider(&host, false).await }
-    });
-
-    tokio::select! {
-        cloudflare_result = &mut cloudflare => {
-            match cloudflare_result.map_err(|err| format!("Cloudflare DoT task failed: {err}"))? {
-                Ok(addresses) => Ok(addresses),
-                Err(first_error) => {
-                    let google_result = google.await.map_err(|err| format!("Google DoT task failed: {err}"))?;
-                    google_result.map_err(|err| format!("DoT resolve failed for {host}: {first_error}; {err}"))
-                }
-            }
-        },
-        google_result = &mut google => {
-            match google_result.map_err(|err| format!("Google DoT task failed: {err}"))? {
-                Ok(addresses) => Ok(addresses),
-                Err(first_error) => {
-                    let cloudflare_result = cloudflare.await.map_err(|err| format!("Cloudflare DoT task failed: {err}"))?;
-                    cloudflare_result.map_err(|err| format!("DoT resolve failed for {host}: {first_error}; {err}"))
-                }
-            }
-        },
+        tasks.spawn(async move {
+            let result = resolve_with_dot_provider(&host, provider).await;
+            (provider.provider, provider.address, result)
+        });
     }
+
+    let mut errors = Vec::new();
+    while let Some(joined) = tasks.join_next().await {
+        match joined.map_err(|err| format!("DoT task failed: {err}"))? {
+            (_provider, _, Ok(addresses)) if !addresses.is_empty() => {
+                tasks.abort_all();
+                return Ok(addresses);
+            }
+            (provider, address, Ok(_)) => {
+                errors.push(format!("{provider} {address}: empty response"));
+            }
+            (provider, address, Err(err)) => {
+                errors.push(format!("{provider} {address}: {err}"));
+            }
+        }
+    }
+
+    Err(format!(
+        "DoT resolve failed for {host}: {}",
+        errors.join("; ")
+    ))
 }
 
 pub async fn check_github_release(dot_enabled: bool) -> Result<GitHubReleaseInfo> {
+    fetch_github_release_json(
+        "https://api.github.com/repos/G-Yoka/G-OpenSteamTool/releases/latest",
+        dot_enabled,
+    )
+    .await
+}
+
+pub async fn check_github_beta_release(dot_enabled: bool) -> Result<GitHubReleaseInfo> {
+    let (client, resolved_hosts) = github_client(dot_enabled).await?;
+    let releases: Vec<Value> = client
+        .get("https://api.github.com/repos/G-Yoka/G-OpenSteamTool/releases?per_page=30")
+        .send()
+        .await
+        .map_err(|err| err.to_string())?
+        .error_for_status()
+        .map_err(|err| err.to_string())?
+        .json()
+        .await
+        .map_err(|err| err.to_string())?;
+
+    let releases: Vec<GitHubReleaseInfo> = releases
+        .into_iter()
+        .filter_map(|value| release_from_github_value(value, dot_enabled, resolved_hosts.clone()))
+        .collect();
+
+    select_beta_release(&releases)
+        .cloned()
+        .ok_or_else(|| "GitHub Pre-release 中未找到 beta-latest.json".to_string())
+}
+
+pub fn select_beta_release(releases: &[GitHubReleaseInfo]) -> Option<&GitHubReleaseInfo> {
+    releases
+        .iter()
+        .find(|release| release.prerelease && release_has_asset(release, BETA_UPDATE_METADATA))
+}
+
+pub fn release_has_asset(release: &GitHubReleaseInfo, asset_name: &str) -> bool {
+    release.assets.iter().any(|asset| asset.name == asset_name)
+}
+
+pub fn release_asset_url(release: &GitHubReleaseInfo, asset_name: &str) -> Option<String> {
+    release
+        .assets
+        .iter()
+        .find(|asset| asset.name == asset_name)
+        .map(|asset| asset.browser_download_url.clone())
+}
+
+async fn fetch_github_release_json(url: &str, dot_enabled: bool) -> Result<GitHubReleaseInfo> {
+    let (client, resolved_hosts) = github_client(dot_enabled).await?;
+    let value: Value = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|err| err.to_string())?
+        .error_for_status()
+        .map_err(|err| err.to_string())?
+        .json()
+        .await
+        .map_err(|err| err.to_string())?;
+
+    release_from_github_value(value, dot_enabled, resolved_hosts)
+        .ok_or_else(|| "GitHub Releases did not return a tag name".into())
+}
+
+async fn github_client(dot_enabled: bool) -> Result<(reqwest::Client, Vec<ResolvedHost>)> {
     let mut resolved_hosts = Vec::new();
     let mut builder = reqwest::Client::builder()
-        .user_agent("G-OpenSteamTool/0.2.0")
+        .user_agent("G-OpenSteamTool/0.2.0-beta.1")
         .timeout(Duration::from_secs(12));
 
     if dot_enabled {
@@ -652,18 +848,17 @@ pub async fn check_github_release(dot_enabled: bool) -> Result<GitHubReleaseInfo
         }
     }
 
-    let client = builder.build().map_err(|err| err.to_string())?;
-    let value: Value = client
-        .get("https://api.github.com/repos/G-Yoka/G-OpenSteamTool/releases/latest")
-        .send()
-        .await
-        .map_err(|err| err.to_string())?
-        .error_for_status()
-        .map_err(|err| err.to_string())?
-        .json()
-        .await
-        .map_err(|err| err.to_string())?;
+    Ok((
+        builder.build().map_err(|err| err.to_string())?,
+        resolved_hosts,
+    ))
+}
 
+fn release_from_github_value(
+    value: Value,
+    dot_enabled: bool,
+    resolved_hosts: Vec<ResolvedHost>,
+) -> Option<GitHubReleaseInfo> {
     let version = value
         .get("tag_name")
         .and_then(Value::as_str)
@@ -671,7 +866,7 @@ pub async fn check_github_release(dot_enabled: bool) -> Result<GitHubReleaseInfo
         .trim_start_matches('v')
         .to_string();
     if version.is_empty() {
-        return Err("GitHub Releases did not return a tag name".into());
+        return None;
     }
 
     let assets = value
@@ -693,7 +888,7 @@ pub async fn check_github_release(dot_enabled: bool) -> Result<GitHubReleaseInfo
         })
         .unwrap_or_default();
 
-    Ok(GitHubReleaseInfo {
+    Some(GitHubReleaseInfo {
         version,
         name: value
             .get("name")
@@ -715,30 +910,29 @@ pub async fn check_github_release(dot_enabled: bool) -> Result<GitHubReleaseInfo
             .unwrap_or("https://github.com/G-Yoka/G-OpenSteamTool/releases/latest")
             .to_string(),
         assets,
+        prerelease: value
+            .get("prerelease")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
         dns_optimized: dot_enabled,
         resolved_hosts,
     })
 }
 
-async fn resolve_with_dot_provider(host: &str, cloudflare: bool) -> Result<Vec<String>> {
+async fn resolve_with_dot_provider(host: &str, provider: DnsProviderSpec) -> Result<Vec<String>> {
     use hickory_resolver::config::{ResolverConfig, ServerGroup};
     use hickory_resolver::net::runtime::TokioRuntimeProvider;
     use hickory_resolver::Resolver;
 
-    let cloudflare_ips = [IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))];
-    let google_ips = [IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))];
-    let group = if cloudflare {
-        ServerGroup {
-            ips: &cloudflare_ips,
-            server_name: "cloudflare-dns.com",
-            path: "/dns-query",
-        }
-    } else {
-        ServerGroup {
-            ips: &google_ips,
-            server_name: "dns.google",
-            path: "/dns-query",
-        }
+    let ip = provider
+        .address
+        .parse::<IpAddr>()
+        .map_err(|err| err.to_string())?;
+    let ips = [ip];
+    let group = ServerGroup {
+        ips: &ips,
+        server_name: provider.server_name,
+        path: provider.path,
     };
     let config = ResolverConfig::tls(&group);
     let resolver = Resolver::builder_with_config(config, TokioRuntimeProvider::default())

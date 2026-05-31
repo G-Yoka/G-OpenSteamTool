@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { AppMetadata, GameConfig, GitHubReleaseInfo, LogFile, ManagerSettings, ScanState } from "./types";
+import type { AppMetadata, DnsLatencyReport, GameConfig, GitHubReleaseInfo, LogFile, ManagerSettings, ScanState, UpdateChannel, UpdateCheckInfo } from "./types";
 
 const hasTauri = () => "__TAURI_INTERNALS__" in window;
 
@@ -118,12 +118,13 @@ export async function readLogs(steamDir: string): Promise<LogFile[]> {
 export async function checkGithubRelease(dotEnabled: boolean): Promise<GitHubReleaseInfo> {
   if (!hasTauri()) {
     return {
-      version: "0.2.0",
+      version: "0.2.0-beta.1",
       name: "Preview",
       published_at: null,
       body: "Tauri 应用内可检查 GitHub Releases。",
       html_url: "https://github.com/G-Yoka/G-OpenSteamTool/releases/latest",
       assets: [],
+      prerelease: false,
       dns_optimized: dotEnabled,
       resolved_hosts: [],
     };
@@ -134,6 +135,43 @@ export async function checkGithubRelease(dotEnabled: boolean): Promise<GitHubRel
 export async function resolveGithubDomainWithDot(host: string): Promise<string[]> {
   if (!hasTauri()) return [];
   return invoke<string[]>("resolve_github_domain_with_dot", { host });
+}
+
+export async function testGithubDnsLatency(host = "api.github.com"): Promise<DnsLatencyReport> {
+  if (!hasTauri()) {
+    return {
+      host,
+      results: [
+        { provider: "Cloudflare", address: "1.1.1.1", latency_ms: null, ok: false, error: "preview" },
+        { provider: "Google", address: "8.8.8.8", latency_ms: null, ok: false, error: "preview" },
+        { provider: "AliDNS", address: "223.5.5.5", latency_ms: null, ok: false, error: "preview" },
+        { provider: "AliDNS", address: "223.6.6.6", latency_ms: null, ok: false, error: "preview" },
+        { provider: "DNSPod", address: "1.12.12.12", latency_ms: null, ok: false, error: "preview" },
+        { provider: "DNSPod", address: "120.53.53.53", latency_ms: null, ok: false, error: "preview" },
+      ],
+    };
+  }
+  return invoke<DnsLatencyReport>("test_github_dns_latency", { host });
+}
+
+export async function checkUpdateChannel(channel: UpdateChannel, dotEnabled: boolean): Promise<UpdateCheckInfo> {
+  if (!hasTauri()) {
+    return {
+      channel,
+      available: false,
+      version: "0.2.0-beta.1",
+      current_version: "0.2.0-beta.1",
+      date: null,
+      body: "Preview mode",
+      release: null,
+    };
+  }
+  return invoke<UpdateCheckInfo>("check_update_channel", { channel, dotEnabled });
+}
+
+export async function installUpdateChannel(channel: UpdateChannel, dotEnabled: boolean): Promise<void> {
+  if (!hasTauri()) return;
+  return invoke("install_update_channel", { channel, dotEnabled });
 }
 
 export async function closeSteam(): Promise<void> {

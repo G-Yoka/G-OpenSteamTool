@@ -86,6 +86,32 @@ export type GitHubReleaseInfo = {
   body: string;
   html_url: string;
   assets: GitHubReleaseAsset[];
+  prerelease: boolean;
   dns_optimized: boolean;
   resolved_hosts: ResolvedHost[];
+};
+
+export type DnsLatencyResult = {
+  provider: string;
+  address: string;
+  latency_ms?: number | null;
+  ok: boolean;
+  error?: string | null;
+};
+
+export type DnsLatencyReport = {
+  host: string;
+  results: DnsLatencyResult[];
+};
+
+export type UpdateChannel = "stable" | "beta";
+
+export type UpdateCheckInfo = {
+  channel: UpdateChannel;
+  available: boolean;
+  version: string;
+  current_version: string;
+  date?: string | null;
+  body?: string | null;
+  release?: GitHubReleaseInfo | null;
 };

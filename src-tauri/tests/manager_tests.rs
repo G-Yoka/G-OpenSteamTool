@@ -1,12 +1,13 @@
 use std::fs;
 
 use g_opensteamtool::manager::{
-    delete_game_from_dir, detect_steam_dir_from_candidates, github_domains_for_optimization,
-    import_lua_file_from_path, install_dlls_from_dir, list_games_from_dir, load_settings_from_dir,
-    parse_steam_manifest_version, read_logs_from_dir, remove_dlls_from_dir, render_game_lua,
-    resolve_dll_resource_dir_from_candidates, save_settings_to_dir, scan_state_with_assets,
-    set_game_enabled_in_dir, steam_shutdown_command_specs, strip_verbatim_prefix,
-    upsert_game_in_dir, validate_steam_dir, DllLoadState, DllState, GameConfig, ManagerSettings,
+    delete_game_from_dir, detect_steam_dir_from_candidates, github_dns_latency_providers,
+    github_domains_for_optimization, import_lua_file_from_path, install_dlls_from_dir,
+    list_games_from_dir, load_settings_from_dir, parse_steam_manifest_version, read_logs_from_dir,
+    remove_dlls_from_dir, render_game_lua, resolve_dll_resource_dir_from_candidates,
+    save_settings_to_dir, scan_state_with_assets, select_beta_release, set_game_enabled_in_dir,
+    steam_shutdown_command_specs, strip_verbatim_prefix, upsert_game_in_dir, validate_steam_dir,
+    DllLoadState, DllState, GameConfig, GitHubReleaseAsset, GitHubReleaseInfo, ManagerSettings,
 };
 
 fn make_steam_dir() -> tempfile::TempDir {
@@ -445,6 +446,88 @@ fn github_dns_optimization_hosts_cover_release_domains() {
     assert!(hosts.contains(&"api.github.com"));
     assert!(hosts.contains(&"objects.githubusercontent.com"));
     assert!(hosts.contains(&"github-releases.githubusercontent.com"));
+}
+
+#[test]
+fn github_dns_latency_providers_cover_default_dot_services() {
+    let providers = github_dns_latency_providers();
+
+    assert_eq!(providers.len(), 6);
+    assert!(providers
+        .iter()
+        .any(|provider| provider.provider == "Cloudflare"
+            && provider.address == "1.1.1.1"
+            && provider.server_name == "cloudflare-dns.com"));
+    assert!(providers
+        .iter()
+        .any(|provider| provider.provider == "Google"
+            && provider.address == "8.8.8.8"
+            && provider.server_name == "dns.google"));
+    assert!(providers
+        .iter()
+        .any(|provider| provider.provider == "AliDNS"
+            && provider.address == "223.5.5.5"
+            && provider.server_name == "dns.alidns.com"));
+    assert!(providers
+        .iter()
+        .any(|provider| provider.provider == "AliDNS"
+            && provider.address == "223.6.6.6"
+            && provider.server_name == "dns.alidns.com"));
+    assert!(providers
+        .iter()
+        .any(|provider| provider.provider == "DNSPod"
+            && provider.address == "1.12.12.12"
+            && provider.server_name == "dot.pub"));
+    assert!(providers
+        .iter()
+        .any(|provider| provider.provider == "DNSPod"
+            && provider.address == "120.53.53.53"
+            && provider.server_name == "dot.pub"));
+}
+
+#[test]
+fn beta_release_selection_requires_prerelease_with_beta_metadata() {
+    let stable_with_beta = release_fixture("0.2.0", false, &["beta-latest.json"]);
+    let prerelease_without_beta = release_fixture("0.2.1-beta.1", true, &["latest.json"]);
+    let prerelease_with_beta = release_fixture(
+        "0.2.0-beta.1",
+        true,
+        &[
+            "G-OpenSteamTool_0.2.0-beta.1_x64_en-US.msi",
+            "beta-latest.json",
+        ],
+    );
+    let releases = vec![
+        stable_with_beta,
+        prerelease_without_beta,
+        prerelease_with_beta,
+    ];
+
+    let selected = select_beta_release(&releases).unwrap();
+
+    assert_eq!(selected.version, "0.2.0-beta.1");
+}
+
+fn release_fixture(version: &str, prerelease: bool, assets: &[&str]) -> GitHubReleaseInfo {
+    GitHubReleaseInfo {
+        version: version.to_string(),
+        name: version.to_string(),
+        published_at: None,
+        body: String::new(),
+        html_url: format!("https://github.com/G-Yoka/G-OpenSteamTool/releases/tag/v{version}"),
+        assets: assets
+            .iter()
+            .map(|name| GitHubReleaseAsset {
+                name: (*name).to_string(),
+                browser_download_url: format!(
+                    "https://github.com/G-Yoka/G-OpenSteamTool/releases/download/v{version}/{name}"
+                ),
+            })
+            .collect(),
+        prerelease,
+        dns_optimized: false,
+        resolved_hosts: Vec::new(),
+    }
 }
 
 #[test]
