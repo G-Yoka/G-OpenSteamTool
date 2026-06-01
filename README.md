@@ -120,6 +120,6 @@ src-tauri/tests/             Rust 集成测试
 ## 项目信息
 
 - 作者：G-Yoka
-- 版本：0.2.0
+- 版本：0.2.1
 - 项目地址：https://github.com/G-Yoka/G-OpenSteamTool
 

@@ -86,7 +86,7 @@ const defaultSettings: ManagerSettings = {
 
 const CANVAS_WIDTH = 1260;
 const CANVAS_HEIGHT = 800;
-const APP_VERSION = "0.2.0";
+const APP_VERSION = "0.2.1";
 const PROJECT_URL = "https://github.com/G-Yoka/G-OpenSteamTool";
 const DNS_SETTING_KEY = "gost.githubDnsOptimization";
 const AUTO_UPDATE_SETTING_KEY = "gost.autoCheckUpdates";
