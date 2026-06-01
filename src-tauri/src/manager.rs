@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::{
     collections::BTreeMap,
     ffi::OsStr,
@@ -29,6 +31,8 @@ use winreg::{enums::*, RegKey};
 const DLL_NAMES: [&str; 3] = ["OpenSteamTool.dll", "dwmapi.dll", "xinput1_4.dll"];
 const INSTALL_MANIFEST: &str = ".g-opensteamtool-dlls.json";
 const META_PREFIX: &str = "-- GOST-META: ";
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 pub type Result<T> = std::result::Result<T, String>;
 
@@ -1018,7 +1022,7 @@ pub fn close_steam() -> Result<()> {
 pub fn restart_steam<P: AsRef<Path>>(steam_dir: P) -> Result<()> {
     let steam_dir = validate_steam_dir(steam_dir)?;
     shutdown_steam(Some(&steam_dir))?;
-    Command::new(steam_dir.join("steam.exe"))
+    hidden_command(steam_dir.join("steam.exe"))
         .current_dir(steam_dir)
         .spawn()
         .map_err(|err| err.to_string())?;
@@ -1518,7 +1522,7 @@ fn force_steam_shutdown_command() -> CommandSpec {
 }
 
 fn run_command_spec(spec: &CommandSpec) -> Result<()> {
-    let status = Command::new(&spec.program)
+    let status = hidden_command(&spec.program)
         .args(&spec.args)
         .status()
         .map_err(|err| err.to_string())?;
@@ -1536,7 +1540,7 @@ fn run_command_spec(spec: &CommandSpec) -> Result<()> {
 fn open_dir(path: &Path) -> Result<()> {
     #[cfg(windows)]
     {
-        Command::new("explorer")
+        hidden_command("explorer")
             .arg(display_path(path))
             .spawn()
             .map_err(|err| err.to_string())?;
@@ -1544,7 +1548,7 @@ fn open_dir(path: &Path) -> Result<()> {
     }
     #[cfg(not(windows))]
     {
-        Command::new("xdg-open")
+        hidden_command("xdg-open")
             .arg(path)
             .spawn()
             .map_err(|err| err.to_string())?;
@@ -1552,8 +1556,15 @@ fn open_dir(path: &Path) -> Result<()> {
     }
 }
 
+fn hidden_command<S: AsRef<OsStr>>(program: S) -> Command {
+    let mut command = Command::new(program);
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
+}
+
 fn is_steam_running() -> bool {
-    Command::new("powershell")
+    hidden_command("powershell")
         .args([
             "-NoProfile",
             "-Command",
@@ -1703,7 +1714,7 @@ fn steam_exe_file_version(path: &Path) -> Option<String> {
         "(Get-Item -LiteralPath '{}').VersionInfo.FileVersion",
         literal_path
     );
-    Command::new("powershell")
+    hidden_command("powershell")
         .args(["-NoProfile", "-Command", &script])
         .output()
         .ok()
