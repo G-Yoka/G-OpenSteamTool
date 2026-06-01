@@ -1716,8 +1716,7 @@ function BetterAboutPanel({ githubDnsOptimization }: { githubDnsOptimization: bo
 }
 
 function trimReleaseNotes(value: string) {
-  const lines = value.trim().split(/\r?\n/).slice(0, 8);
-  return lines.join("\n");
+  return value.trim().replace(/\r\n/g, "\n");
 }
 
 function compareVersions(a: string, b: string) {
