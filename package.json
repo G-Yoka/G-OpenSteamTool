@@ -1,11 +1,12 @@
 {
   "name": "g-opensteamtool",
   "private": true,
-  "version": "0.2.2",
+  "version": "0.2.3",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420",
     "build": "tsc && vite build",
+    "build:tauri-release": "tauri build",
     "preview": "vite preview --host 127.0.0.1 --port 1420",
     "tauri": "tauri"
   },

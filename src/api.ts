@@ -189,11 +189,6 @@ export async function minimizeWindow(): Promise<void> {
   return invoke("minimize_window");
 }
 
-export async function toggleMaximizeWindow(): Promise<void> {
-  if (!hasTauri()) return;
-  return invoke("toggle_maximize_window");
-}
-
 export async function closeWindow(): Promise<void> {
   if (!hasTauri()) return;
   return invoke("close_window");

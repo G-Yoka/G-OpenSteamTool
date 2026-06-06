@@ -263,15 +263,6 @@ fn minimize_window(window: tauri::Window) -> CommandResult<()> {
 }
 
 #[tauri::command]
-fn toggle_maximize_window(window: tauri::Window) -> CommandResult<()> {
-    if window.is_maximized().map_err(|err| err.to_string())? {
-        window.unmaximize().map_err(|err| err.to_string())
-    } else {
-        window.maximize().map_err(|err| err.to_string())
-    }
-}
-
-#[tauri::command]
 fn close_window(window: tauri::Window) -> CommandResult<()> {
     window.close().map_err(|err| err.to_string())
 }
@@ -310,7 +301,6 @@ pub fn run() {
             close_steam,
             restart_steam,
             minimize_window,
-            toggle_maximize_window,
             close_window
         ])
         .run(tauri::generate_context!())

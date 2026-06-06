@@ -24,7 +24,8 @@ import {
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Children, isValidElement, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import type { MouseEvent } from "react";
 import {
   closeSteam,
@@ -49,7 +50,6 @@ import {
   scanState,
   setGameEnabled,
   testGithubDnsLatency,
-  toggleMaximizeWindow,
   upsertGame,
 } from "./api";
 import yokaStarMoonFlower from "./assets/yoka-star-moon-flower.png";
@@ -84,9 +84,9 @@ const defaultSettings: ManagerSettings = {
   pattern_mirror: "",
 };
 
-const CANVAS_WIDTH = 1260;
-const CANVAS_HEIGHT = 800;
-const APP_VERSION = "0.2.2";
+const CANVAS_WIDTH = 1380;
+const CANVAS_HEIGHT = 860;
+const APP_VERSION = "0.2.3";
 const PROJECT_URL = "https://github.com/G-Yoka/G-OpenSteamTool";
 const DNS_SETTING_KEY = "gost.githubDnsOptimization";
 const AUTO_UPDATE_SETTING_KEY = "gost.autoCheckUpdates";
@@ -344,11 +344,6 @@ function App() {
     if (event.button !== 0 || !hasTauriRuntime()) return;
     if ((event.target as HTMLElement).closest(".window-actions")) return;
 
-    if (event.detail === 2) {
-      void toggleMaximizeWindow();
-      return;
-    }
-
     void getCurrentWindow().startDragging();
   }
 
@@ -375,124 +370,238 @@ function App() {
             <button onClick={() => void minimizeWindow()} title="最小化" aria-label="最小化">
               <span />
             </button>
-            <button onClick={() => void toggleMaximizeWindow()} title="最大化" aria-label="最大化">
-              <Square size={15} />
-            </button>
             <button onClick={() => void closeWindow()} title="关闭" aria-label="关闭">
               <X size={18} />
             </button>
           </div>
         </header>
 
-        <nav className="tabbar" aria-label="主导航">
-          {tabs.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => setTab(item.id)}>
-                <Icon size={22} />
-                {item.label}
-              </button>
-            );
-          })}
-        </nav>
-
-        <StatusConsole state={consoleState} onClear={clearConsole} />
-
-        <section className="content">
-          {tab === "overview" && (
-            <Overview
-              busy={busy}
-              steamDir={steamDir}
-              state={state}
-              settings={settings}
-              githubDnsOptimization={githubDnsOptimization}
-              games={games}
-              onChoose={chooseSteamDir}
-              onRefresh={() => refreshAll()}
-              onInitialize={initializeApp}
-              onCloseSteam={() => runAction(closeSteam, "Steam 已关闭", "正在关闭 Steam...")}
-              onRestartSteam={() => runAction(() => restartSteam(steamDir), "Steam 已快速重启", "正在关闭并重启 Steam...")}
-            />
-          )}
-          {tab === "lua" && (
-            <LuaPanel
-              busy={busy}
-              steamDir={steamDir}
-              games={games}
-              form={gameForm}
-              onForm={setGameForm}
-              onSave={saveGame}
-              onEdit={editGame}
-              onImport={importLua}
-              onOpenDir={() => runAction(() => openLuaDir(steamDir), "Lua 目录已打开")}
-              onToggleEnabled={(game, enabled) =>
-                runAction(
-                  async () => {
-                    await setGameEnabled(steamDir, game.appid, enabled);
-                    setGameForm((current) => (current.appid === game.appid ? { ...current, enabled } : current));
-                  },
-                  enabled ? `已启用 G-${game.appid}.lua` : `已禁用 G-${game.appid}.lua`
-                )
-              }
-              onDelete={(appid) => runAction(() => deleteGame(steamDir, appid), `已删除 G-${appid}.lua`)}
-            />
-          )}
-          {tab === "dll" && (
-            <div className="dll-page">
-              <div className="actions-row dll-page-actions">
-                <button className="primary" onClick={() => runAction(() => installDlls(steamDir), "DLL 已安装", "正在安装 DLL...")} disabled={!steamDir || !state?.dll_resources_ready}>
-                  <Download size={18} />
-                  安装 DLL
-                </button>
-                <button onClick={() => runAction(() => removeDlls(steamDir), "DLL 已移除", "正在移除 DLL...")} disabled={!steamDir}>
-                  <Trash2 size={18} />
-                  移除 DLL
-                </button>
-                <button onClick={() => refreshAll()} disabled={!steamDir}>
-                  <RefreshCcw size={18} />
-                  刷新
-                </button>
-              </div>
-              <DllPanel state={state} />
-            </div>
-          )}
-          {tab === "settings" && (
-            <SettingsPanel
-              settings={settings}
-              luaPathsText={luaPathsText}
-              githubDnsOptimization={githubDnsOptimization}
-              autoCheckUpdates={autoCheckUpdates}
-              onSettings={setSettings}
-              onLuaPathsText={setLuaPathsText}
-              onGithubDnsOptimization={setGithubDnsOptimization}
-              onAutoCheckUpdates={setAutoCheckUpdates}
-              onSave={saveCurrentSettings}
-            />
-          )}
-          {tab === "logs" && (
-            <BetterLogsPanel
-              logs={logs}
-              active={activeLog}
-              selected={selectedLog}
-              onSelect={setSelectedLog}
-              onRefresh={() => refreshAll()}
-            />
-          )}
-          {tab === "about" && <BetterAboutPanel githubDnsOptimization={githubDnsOptimization} />}
-        </section>
-
-        <footer className="footer">
-          <button onClick={() => setTab("about")}>
-            <BookOpen size={18} />
-            帮助文档
-          </button>
-          <button onClick={() => setTab("logs")}>
-            <Activity size={18} />
-            查看日志
-          </button>
-        </footer>
+        <div className="app-main">
+          <IconRail tab={tab} onTabChange={setTab} />
+          <Workspace
+            tab={tab}
+            busy={busy}
+            steamDir={steamDir}
+            state={state}
+            settings={settings}
+            githubDnsOptimization={githubDnsOptimization}
+            autoCheckUpdates={autoCheckUpdates}
+            games={games}
+            logs={logs}
+            activeLog={activeLog}
+            selectedLog={selectedLog}
+            gameForm={gameForm}
+            luaPathsText={luaPathsText}
+            consoleState={consoleState}
+            onClearConsole={clearConsole}
+            onChoose={chooseSteamDir}
+            onRefresh={() => refreshAll()}
+            onInitialize={initializeApp}
+            onCloseSteam={() => runAction(closeSteam, "Steam 已关闭", "正在关闭 Steam...")}
+            onRestartSteam={() => runAction(() => restartSteam(steamDir), "Steam 已快速重启", "正在关闭并重启 Steam...")}
+            onGameForm={setGameForm}
+            onSaveGame={saveGame}
+            onEditGame={editGame}
+            onImportLua={importLua}
+            onOpenLuaDir={() => runAction(() => openLuaDir(steamDir), "Lua 目录已打开")}
+            onToggleGame={(game, enabled) =>
+              runAction(
+                async () => {
+                  await setGameEnabled(steamDir, game.appid, enabled);
+                  setGameForm((current) => (current.appid === game.appid ? { ...current, enabled } : current));
+                },
+                enabled ? `已启用 G-${game.appid}.lua` : `已禁用 G-${game.appid}.lua`
+              )
+            }
+            onDeleteGame={(appid) => runAction(() => deleteGame(steamDir, appid), `已删除 G-${appid}.lua`)}
+            onInstallDlls={() => runAction(() => installDlls(steamDir), "DLL 已安装", "正在安装 DLL...")}
+            onRemoveDlls={() => runAction(() => removeDlls(steamDir), "DLL 已移除", "正在移除 DLL...")}
+            onSettings={setSettings}
+            onLuaPathsText={setLuaPathsText}
+            onGithubDnsOptimization={setGithubDnsOptimization}
+            onAutoCheckUpdates={setAutoCheckUpdates}
+            onSaveSettings={saveCurrentSettings}
+            onSelectLog={setSelectedLog}
+            onTabChange={setTab}
+          />
+        </div>
       </main>
     </div>
+  );
+}
+
+function IconRail({ tab, onTabChange }: { tab: Tab; onTabChange: (tab: Tab) => void }) {
+  return (
+    <nav className="icon-rail" aria-label="主导航">
+      {tabs.map((item) => {
+        const Icon = item.icon;
+        return (
+          <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => onTabChange(item.id)} title={item.label} aria-label={item.label}>
+            <Icon size={22} />
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+function Workspace({
+  tab,
+  busy,
+  steamDir,
+  state,
+  settings,
+  githubDnsOptimization,
+  autoCheckUpdates,
+  games,
+  logs,
+  activeLog,
+  selectedLog,
+  gameForm,
+  luaPathsText,
+  consoleState,
+  onClearConsole,
+  onChoose,
+  onRefresh,
+  onInitialize,
+  onCloseSteam,
+  onRestartSteam,
+  onGameForm,
+  onSaveGame,
+  onEditGame,
+  onImportLua,
+  onOpenLuaDir,
+  onToggleGame,
+  onDeleteGame,
+  onInstallDlls,
+  onRemoveDlls,
+  onSettings,
+  onLuaPathsText,
+  onGithubDnsOptimization,
+  onAutoCheckUpdates,
+  onSaveSettings,
+  onSelectLog,
+  onTabChange,
+}: {
+  tab: Tab;
+  busy: Busy;
+  steamDir: string;
+  state: ScanState | null;
+  settings: ManagerSettings;
+  githubDnsOptimization: boolean;
+  autoCheckUpdates: boolean;
+  games: GameConfig[];
+  logs: LogFile[];
+  activeLog?: LogFile;
+  selectedLog: string;
+  gameForm: GameConfig;
+  luaPathsText: string;
+  consoleState: ConsoleState;
+  onClearConsole: () => void;
+  onChoose: () => void;
+  onRefresh: () => void;
+  onInitialize: () => void;
+  onCloseSteam: () => void;
+  onRestartSteam: () => void;
+  onGameForm: (game: GameConfig) => void;
+  onSaveGame: () => void;
+  onEditGame: (game: GameConfig) => void;
+  onImportLua: () => void;
+  onOpenLuaDir: () => void;
+  onToggleGame: (game: GameConfig, enabled: boolean) => void;
+  onDeleteGame: (appid: number) => void;
+  onInstallDlls: () => void;
+  onRemoveDlls: () => void;
+  onSettings: (settings: ManagerSettings) => void;
+  onLuaPathsText: (value: string) => void;
+  onGithubDnsOptimization: (value: boolean) => void;
+  onAutoCheckUpdates: (value: boolean) => void;
+  onSaveSettings: () => void;
+  onSelectLog: (value: string) => void;
+  onTabChange: (tab: Tab) => void;
+}) {
+  return (
+    <section className="workspace">
+      <StatusConsole state={consoleState} onClear={onClearConsole} />
+
+      <section className="content">
+        {tab === "overview" && (
+          <Overview
+            busy={busy}
+            steamDir={steamDir}
+            state={state}
+            settings={settings}
+            githubDnsOptimization={githubDnsOptimization}
+            games={games}
+            onChoose={onChoose}
+            onRefresh={onRefresh}
+            onInitialize={onInitialize}
+            onCloseSteam={onCloseSteam}
+            onRestartSteam={onRestartSteam}
+          />
+        )}
+        {tab === "lua" && (
+          <LuaPanel
+            busy={busy}
+            steamDir={steamDir}
+            games={games}
+            form={gameForm}
+            onForm={onGameForm}
+            onSave={onSaveGame}
+            onEdit={onEditGame}
+            onImport={onImportLua}
+            onOpenDir={onOpenLuaDir}
+            onToggleEnabled={onToggleGame}
+            onDelete={onDeleteGame}
+          />
+        )}
+        {tab === "dll" && (
+          <div className="dll-page">
+            <div className="actions-row dll-page-actions">
+              <button className="primary" onClick={onInstallDlls} disabled={!steamDir || !state?.dll_resources_ready}>
+                <Download size={18} />
+                安装 DLL
+              </button>
+              <button onClick={onRemoveDlls} disabled={!steamDir}>
+                <Trash2 size={18} />
+                移除 DLL
+              </button>
+              <button onClick={onRefresh} disabled={!steamDir}>
+                <RefreshCcw size={18} />
+                刷新
+              </button>
+            </div>
+            <DllPanel state={state} />
+          </div>
+        )}
+        {tab === "settings" && (
+          <SettingsPanel
+            settings={settings}
+            luaPathsText={luaPathsText}
+            githubDnsOptimization={githubDnsOptimization}
+            autoCheckUpdates={autoCheckUpdates}
+            onSettings={onSettings}
+            onLuaPathsText={onLuaPathsText}
+            onGithubDnsOptimization={onGithubDnsOptimization}
+            onAutoCheckUpdates={onAutoCheckUpdates}
+            onSave={onSaveSettings}
+          />
+        )}
+        {tab === "logs" && <BetterLogsPanel logs={logs} active={activeLog} selected={selectedLog} onSelect={onSelectLog} onRefresh={onRefresh} />}
+        {tab === "about" && <BetterAboutPanel githubDnsOptimization={githubDnsOptimization} />}
+      </section>
+
+      <footer className="footer">
+        <button onClick={() => onTabChange("about")}>
+          <BookOpen size={18} />
+          帮助文档
+        </button>
+        <button onClick={() => onTabChange("logs")}>
+          <Activity size={18} />
+          查看日志
+        </button>
+      </footer>
+    </section>
   );
 }
 
@@ -563,21 +672,133 @@ function normalizeGameForm(game: GameConfig): GameConfig {
 }
 
 function StatusConsole({ state, onClear }: { state: ConsoleState; onClear: () => void }) {
-  const Icon = state.kind === "success" ? CheckCircle2 : state.kind === "error" ? XCircle : state.kind === "working" ? RefreshCcw : Activity;
-  const label = state.kind === "success" ? "成功" : state.kind === "error" ? "失败" : state.kind === "working" ? "处理中" : "空闲";
+  const noticeKey = `${state.kind}-${state.time}-${state.text}`;
+  const lastNoticeKey = useRef(noticeKey);
+  const [noticeStack, setNoticeStack] = useState<{ current: ConsoleState; previous: ConsoleState | null }>({ current: state, previous: null });
+  const activeNotice = noticeStack.current;
+  const activeNoticeKey = `${activeNotice.kind}-${activeNotice.time}-${activeNotice.text}`;
+  const Icon = activeNotice.kind === "success" ? CheckCircle2 : activeNotice.kind === "error" ? XCircle : activeNotice.kind === "working" ? RefreshCcw : Activity;
+  const shouldScroll = activeNotice.text.length > 28;
+  const label = activeNotice.kind === "success" ? "成功" : activeNotice.kind === "error" ? "失败" : activeNotice.kind === "working" ? "处理中" : "空闲";
+
+  useEffect(() => {
+    if (noticeKey === lastNoticeKey.current) return;
+    lastNoticeKey.current = noticeKey;
+    setNoticeStack((current) => ({ current: state, previous: current.current }));
+    const timer = window.setTimeout(() => {
+      setNoticeStack((current) => ({ ...current, previous: null }));
+    }, 320);
+    return () => window.clearTimeout(timer);
+  }, [noticeKey, state]);
 
   return (
-    <div className={`status-console ${state.kind}`}>
-      <div>
+    <div className={`status-console ${activeNotice.kind}`}>
+      <div className="status-console-main">
         <Icon size={20} />
         <strong>状态控制台</strong>
         <span>{label}</span>
-        <p>{state.text}</p>
+        <div className="status-notice-window">
+          {noticeStack.previous && (
+            <div className="status-notice-item leaving" key={`${noticeStack.previous.kind}-${noticeStack.previous.time}-${noticeStack.previous.text}`}>
+              <p>{noticeStack.previous.text}</p>
+            </div>
+          )}
+          <div className="status-notice-item entering" key={activeNoticeKey}>
+            <div className={`status-message-track ${shouldScroll ? "scrolling" : ""}`}>
+              <p>{activeNotice.text}</p>
+              {shouldScroll && <p aria-hidden="true">{activeNotice.text}</p>}
+            </div>
+          </div>
+        </div>
       </div>
-      <div>
-        <time>{state.time}</time>
+      <div className="status-console-actions">
+        <time>{activeNotice.time}</time>
         <button onClick={onClear}>清除</button>
       </div>
+    </div>
+  );
+}
+
+type SelectOption = {
+  value: string;
+  label: string;
+};
+
+function SelectField({
+  value,
+  options,
+  onChange,
+  ariaLabel,
+  children,
+}: {
+  value: string;
+  options?: SelectOption[];
+  onChange: (value: string) => void;
+  ariaLabel?: string;
+  children?: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const normalizedOptions = useMemo(
+    () =>
+      options ??
+      Children.toArray(children).flatMap((child) => {
+        if (!isValidElement<{ value?: string; children?: ReactNode }>(child)) return [];
+        const optionValue = String(child.props.value ?? child.key ?? "");
+        const optionLabel = typeof child.props.children === "string" ? child.props.children : optionValue;
+        return [{ value: optionValue, label: optionLabel }];
+      }),
+    [children, options]
+  );
+  const selected = normalizedOptions.find((option) => option.value === value) ?? normalizedOptions[0];
+
+  useEffect(() => {
+    if (!open) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div className={`custom-select ${open ? "open" : ""}`} ref={rootRef}>
+      <button type="button" className="custom-select-trigger" aria-haspopup="listbox" aria-expanded={open} aria-label={ariaLabel} onClick={() => setOpen((current) => !current)}>
+        <span>{selected?.label ?? value}</span>
+        <ChevronDown size={15} />
+      </button>
+      {open && (
+        <div className="custom-select-menu" role="listbox">
+          {normalizedOptions.map((option) => (
+            <button
+              type="button"
+              role="option"
+              aria-selected={option.value === value}
+              className={option.value === value ? "selected" : ""}
+              key={option.value}
+              onClick={() => {
+                onChange(option.value);
+                setOpen(false);
+              }}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -659,8 +880,11 @@ function Overview({
       </section>
 
       <section className="panel fetch-panel">
-        <PanelTitle icon={Download} title="自动获取 / Auto-Fetcher" extra="公开接口，无需 Key" />
-        <p className="soft-text">在 Lua 页面输入应用ID AppId 可获取基础应用名；DLC、Depot、Manifest 仍可手动补齐。</p>
+        <PanelTitle icon={Download} title="自动获取 / Auto-Fetcher" extra="功能暂未实现" />
+        <div className="feature-pending">
+          <strong>功能暂未实现</strong>
+          <p className="soft-text">该功能暂未实现，Lua 配置请先手动填写 AppId、Depot、Manifest 等信息。</p>
+        </div>
       </section>
 
       <section className="panel settings-summary">
@@ -886,18 +1110,24 @@ function SettingsPanel({
             <div className="form-grid settings-grid">
               <label>
                 日志等级
-                <select value={settings.log_level} onChange={(event) => onSettings({ ...settings, log_level: event.target.value })}>
-                  {["trace", "debug", "info", "warn", "error"].map((level) => (
-                    <option key={level}>{level}</option>
-                  ))}
-                </select>
+                <SelectField
+                  value={settings.log_level}
+                  options={["trace", "debug", "info", "warn", "error"].map((level) => ({ value: level, label: level }))}
+                  ariaLabel="日志等级"
+                  onChange={(value) => onSettings({ ...settings, log_level: value })}
+                />
               </label>
               <label>
                 Manifest 来源
-                <select value={settings.manifest_url} onChange={(event) => onSettings({ ...settings, manifest_url: event.target.value })}>
-                  <option value="wudrm">wudrm</option>
-                  <option value="steamrun">steamrun</option>
-                </select>
+                <SelectField
+                  value={settings.manifest_url}
+                  options={[
+                    { value: "wudrm", label: "wudrm" },
+                    { value: "steamrun", label: "steamrun" },
+                  ]}
+                  ariaLabel="Manifest 来源"
+                  onChange={(value) => onSettings({ ...settings, manifest_url: value })}
+                />
               </label>
               <NumberField label="解析超时 Resolve Timeout" value={settings.timeout_resolve_ms} onChange={(value) => onSettings({ ...settings, timeout_resolve_ms: value })} />
               <NumberField label="连接超时 Connect Timeout" value={settings.timeout_connect_ms} onChange={(value) => onSettings({ ...settings, timeout_connect_ms: value })} />
@@ -1461,13 +1691,13 @@ function BetterLogsPanel({
       <section className="panel log-viewer">
         <PanelTitle icon={Activity} title={active?.name ?? "日志内容"} extra={active ? `${filteredRows.length}/${rows.length} 行` : undefined} />
         <div className="log-toolbar">
-          <select value={level} onChange={(event) => setLevel(event.target.value)}>
+          <SelectField value={level} ariaLabel="日志等级筛选" onChange={setLevel}>
             {["all", "trace", "debug", "info", "warn", "error"].map((item) => (
               <option key={item} value={item}>
                 {item === "all" ? "全部" : item}
               </option>
             ))}
-          </select>
+          </SelectField>
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索日志内容" />
           <label>
             <input type="checkbox" checked={wrap} onChange={(event) => setWrap(event.target.checked)} />
