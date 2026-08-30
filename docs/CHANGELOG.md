@@ -3,7 +3,8 @@
 ## v0.3.0
 
 - 完成 Tauri/React/Rust 工程重构，前端按 `app / features / shared` 分层，Rust 命令通过 `services` 连接领域实现。
-- 全新应用图标，并同步到窗口、概览、关于页、EXE 与 MSI。
+- 全新应用图标，并同步到窗口、概览、关于页与 EXE。
+- 将三项托管 DLL 资源直接内嵌到便携 EXE，不再发布 MSI 安装器。
 - 自动从 Steam 本地 `appinfo.vdf` 和 `config.vdf` 发现 App、Depot、Manifest 与已有 Depot Key。
 - 修复窗口拖动、最小化、关闭按钮和 Steam 目录持久化。
 - 修复关闭状态下重启 Steam 导致重复启动，以及同步等待造成界面无响应的问题。

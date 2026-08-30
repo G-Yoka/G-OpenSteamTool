@@ -26,7 +26,7 @@ The application cannot create or retrieve Depot keys that are not already availa
 
 ## Install
 
-Download the MSI installer or portable EXE from the [latest release](https://github.com/G-Yoka/G-OpenSteamTool/releases/latest). See [INSTALL.md](INSTALL.md) for detailed instructions.
+Download the standalone `g-opensteamtool.exe` from the [latest release](https://github.com/G-Yoka/G-OpenSteamTool/releases/latest). The managed DLL resources are embedded, so no installer or companion resource directory is required. See [INSTALL.md](INSTALL.md) for detailed instructions.
 
 ## Build from source
 

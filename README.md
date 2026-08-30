@@ -35,8 +35,7 @@ G-OpenSteamTool 是面向 Windows 的 OpenSteamTool 桌面管理器，用一个�
 
 前往 [Releases](https://github.com/G-Yoka/G-OpenSteamTool/releases/latest) 下载：
 
-- `G-OpenSteamTool_0.3.0_x64_en-US.msi`：推荐，使用 Windows 安装程序。
-- `g-opensteamtool.exe`：便携运行版，无需安装。
+- `g-opensteamtool.exe`：完整便携版，无需安装，DLL 资源已内嵌。
 - `SHA256SUMS.txt`：用于核验下载文件完整性。
 
 GitHub 自动生成的 `Source code (zip)` / `Source code (tar.gz)` 是源码，不是可直接运行的程序。完整安装与升级说明见 [docs/INSTALL.md](docs/INSTALL.md)。
@@ -85,7 +84,6 @@ npm run build:tauri-release
 
 ```text
 app/src-tauri/target/release/g-opensteamtool.exe
-app/src-tauri/target/release/bundle/msi/G-OpenSteamTool_0.3.0_x64_en-US.msi
 ```
 
 ## 仓库结构
@@ -97,7 +95,7 @@ G-OpenSteamTool/
 │   ├── src-tauri/
 │   │   ├── src/                 Rust 后端与 services 分层
 │   │   ├── tests/               Rust 集成测试
-│   │   ├── resources/dlls/      打包 DLL 资源
+│   │   ├── resources/dlls/      编译进 EXE 的 DLL 资源
 │   │   └── icons/               应用图标资源
 │   ├── package.json
 │   └── vite.config.ts
