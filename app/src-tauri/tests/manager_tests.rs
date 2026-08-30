@@ -2,12 +2,12 @@ use std::fs;
 
 use g_opensteamtool::manager::{
     delete_game_from_dir, detect_steam_dir_from_candidates, import_lua_file_from_path,
-    install_dlls_from_dir, list_games_from_dir, load_settings_from_dir,
+    install_bundled_dlls, install_dlls_from_dir, list_games_from_dir, load_settings_from_dir,
     parse_steam_manifest_version, read_logs_from_dir, remove_dlls_from_dir, render_game_lua,
     resolve_dll_resource_dir_from_candidates, save_settings_to_dir, scan_state_with_assets,
-    set_game_enabled_in_dir, steam_shutdown_command_specs, strip_verbatim_prefix,
-    upsert_game_in_dir, validate_steam_dir, DllLoadState, DllState, GameConfig, ManagerSettings,
-    ManifestEntry,
+    scan_state_with_bundled_assets, set_game_enabled_in_dir, steam_shutdown_command_specs,
+    strip_verbatim_prefix, upsert_game_in_dir, validate_steam_dir, DllLoadState, DllState,
+    GameConfig, ManagerSettings, ManifestEntry,
 };
 
 fn make_steam_dir() -> tempfile::TempDir {
@@ -457,6 +457,22 @@ fn scan_install_and_remove_dlls_from_asset_dir() {
         .dlls
         .iter()
         .all(|dll| dll.state == DllState::Missing));
+}
+
+#[test]
+fn portable_build_scans_and_installs_embedded_dlls() {
+    let steam = make_steam_dir();
+
+    let before = scan_state_with_bundled_assets(steam.path()).unwrap();
+    assert!(before.dll_resources_ready);
+    assert!(before.missing_dll_resources.is_empty());
+    assert!(before.dlls.iter().all(|dll| dll.state == DllState::Missing));
+    assert!(before.dlls.iter().all(|dll| dll.resource_hash.is_some()));
+
+    install_bundled_dlls(steam.path()).unwrap();
+    let after = scan_state_with_bundled_assets(steam.path()).unwrap();
+    assert!(after.dlls.iter().all(|dll| dll.state == DllState::Managed));
+    assert!(after.dlls.iter().all(|dll| dll.hash_matched));
 }
 
 #[test]

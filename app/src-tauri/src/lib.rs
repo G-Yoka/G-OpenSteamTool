@@ -23,13 +23,13 @@ async fn select_steam_dir(app: tauri::AppHandle) -> CommandResult<Option<String>
 }
 
 #[tauri::command]
-fn scan_state(app: tauri::AppHandle, steam_dir: String) -> CommandResult<manager::ScanState> {
-    services::steam::scan(&app, steam_dir)
+fn scan_state(steam_dir: String) -> CommandResult<manager::ScanState> {
+    services::steam::scan(steam_dir)
 }
 
 #[tauri::command]
-fn install_dlls(app: tauri::AppHandle, steam_dir: String) -> CommandResult<()> {
-    services::dlls::install(&app, steam_dir)
+fn install_dlls(steam_dir: String) -> CommandResult<()> {
+    services::dlls::install(steam_dir)
 }
 
 #[tauri::command]

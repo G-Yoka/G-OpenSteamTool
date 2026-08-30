@@ -29,6 +29,9 @@ use windows::Win32::{
 use winreg::{enums::*, RegKey};
 
 const DLL_NAMES: [&str; 3] = ["OpenSteamTool.dll", "dwmapi.dll", "xinput1_4.dll"];
+const OPENSTEAMTOOL_DLL: &[u8] = include_bytes!("../resources/dlls/OpenSteamTool.dll");
+const DWMAPI_DLL: &[u8] = include_bytes!("../resources/dlls/dwmapi.dll");
+const XINPUT1_4_DLL: &[u8] = include_bytes!("../resources/dlls/xinput1_4.dll");
 const INSTALL_MANIFEST: &str = ".g-opensteamtool-dlls.json";
 const META_PREFIX: &str = "-- GOST-META: ";
 #[cfg(windows)]
@@ -523,6 +526,48 @@ pub fn scan_state_with_assets<P: AsRef<Path>, Q: AsRef<Path>>(
         missing_dll_resources,
         log_files,
     })
+}
+
+pub fn scan_state_with_bundled_assets<P: AsRef<Path>>(steam_dir: P) -> Result<ScanState> {
+    let steam_dir = validate_steam_dir(&steam_dir)?;
+    let module_scan = scan_steam_modules();
+    let dlls = DLL_NAMES
+        .iter()
+        .map(|name| {
+            dll_status_with_resource_hash(
+                &steam_dir,
+                name,
+                Some(bytes_hash(bundled_dll(name))),
+                &module_scan,
+            )
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let log_files = list_log_names(&steam_dir);
+    Ok(ScanState {
+        steam_dir: display_path(&steam_dir),
+        steam_valid: true,
+        steam_running: module_scan.steam_running,
+        steam_version: steam_version(&steam_dir),
+        config_exists: steam_dir.join("opensteamtool.toml").exists(),
+        lua_count: list_games_from_dir(&steam_dir)?.len(),
+        dlls,
+        dll_resources_ready: true,
+        missing_dll_resources: Vec::new(),
+        log_files,
+    })
+}
+
+pub fn install_bundled_dlls<P: AsRef<Path>>(steam_dir: P) -> Result<()> {
+    let steam_dir = validate_steam_dir(steam_dir)?;
+    let mut manifest = InstallManifest {
+        dlls: BTreeMap::new(),
+    };
+    for name in DLL_NAMES {
+        let dst = steam_dir.join(name);
+        safe_replace_file(&dst, bundled_dll(name))?;
+        manifest.dlls.insert(name.to_string(), file_hash(&dst)?);
+    }
+    write_manifest(&steam_dir, &manifest)
 }
 
 pub fn install_dlls_from_dir<P: AsRef<Path>, Q: AsRef<Path>>(
@@ -1074,11 +1119,20 @@ fn dll_status(
     name: &str,
     module_scan: &SteamModuleScan,
 ) -> Result<DllStatus> {
-    let target = steam_dir.join(name);
     let resource_hash = assets_dir
         .map(|asset_dir| asset_dir.join(name))
         .filter(|asset| asset.exists())
         .and_then(|asset| file_hash_hex(&asset).ok());
+    dll_status_with_resource_hash(steam_dir, name, resource_hash, module_scan)
+}
+
+fn dll_status_with_resource_hash(
+    steam_dir: &Path,
+    name: &str,
+    resource_hash: Option<String>,
+    module_scan: &SteamModuleScan,
+) -> Result<DllStatus> {
+    let target = steam_dir.join(name);
     let target_hash = target
         .exists()
         .then(|| file_hash_hex(&target))
@@ -1086,13 +1140,8 @@ fn dll_status(
     let hash_matched = resource_hash.is_some() && resource_hash == target_hash;
     let state = if !target.exists() {
         DllState::Missing
-    } else if let Some(asset_dir) = assets_dir {
-        let asset = asset_dir.join(name);
-        if asset.exists() && hash_matched {
-            DllState::Managed
-        } else {
-            DllState::Foreign
-        }
+    } else if hash_matched {
+        DllState::Managed
     } else {
         DllState::Foreign
     };
@@ -1167,6 +1216,21 @@ fn file_hash(path: &Path) -> Result<String> {
 
 fn file_hash_hex(path: &Path) -> Result<String> {
     file_hash(path)
+}
+
+fn bundled_dll(name: &str) -> &'static [u8] {
+    match name {
+        "OpenSteamTool.dll" => OPENSTEAMTOOL_DLL,
+        "dwmapi.dll" => DWMAPI_DLL,
+        "xinput1_4.dll" => XINPUT1_4_DLL,
+        _ => unreachable!("unknown bundled DLL: {name}"),
+    }
+}
+
+fn bytes_hash(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
 }
 
 fn write_manifest(steam_dir: &Path, manifest: &InstallManifest) -> Result<()> {
