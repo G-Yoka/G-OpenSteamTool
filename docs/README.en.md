@@ -4,7 +4,7 @@
 
 G-OpenSteamTool is a Windows desktop manager for Steam-local OpenSteamTool components, per-game Lua files, TOML settings, Depot metadata, and logs.
 
-- Current version: `v0.3.0`
+- Current version: `v0.3.1`
 - Platform: Windows 10/11 x64
 - Stack: Tauri 2 / Rust / React / TypeScript
 - Updates: manual downloads from [GitHub Releases](https://github.com/G-Yoka/G-OpenSteamTool/releases)

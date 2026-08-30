@@ -4,6 +4,7 @@
 
 - [安装、升级与卸载](INSTALL.md)
 - [版本变更记录](CHANGELOG.md)
+- [v0.3.1 发布说明](releases/v0.3.1.md)
 - [v0.3.0 发布说明](releases/v0.3.0.md)
 - [设计与视觉检查记录](DESIGN_QA.md)
 
