@@ -1,8 +1,8 @@
 node_modules/
 dist/
 target/
-src-tauri/target/
-src-tauri/gen/
+app/src-tauri/target/
+app/src-tauri/gen/
 outputs/
 *.log
 *.tmp

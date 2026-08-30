@@ -1,125 +1,122 @@
 # G-OpenSteamTool
 
-G-OpenSteamTool 是一个面向 Windows 的 OpenSteamTool 可视化管理器，使用 Rust + Tauri v2 + React 构建。它用于管理 Steam 根目录中的 OpenSteamTool DLL、`opensteamtool.toml` 设置，以及按游戏拆分的 Lua 配置文件。
+🌐 语言 / Language：**简体中文** · [English](docs/README.en.md)
 
-> 本项目只提供桌面管理器和资源管理能力，不在应用内编译 OpenSteamTool 上游源码。
+G-OpenSteamTool 是面向 Windows 的 OpenSteamTool 桌面管理器，用一个直观的工作区管理 Steam 目录、运行组件、游戏 Lua、Depot 信息、TOML 设置和运行日志。
 
-## 功能特性
+- 当前版本：`v0.3.0`
+- 运行环境：Windows 10/11 x64
+- 技术栈：Tauri 2 / Rust / React / TypeScript
+- 更新方式：从 [GitHub Releases](https://github.com/G-Yoka/G-OpenSteamTool/releases) 手动下载
 
-- 自动检测或手动选择 Steam 根目录。
-- 安装、移除、扫描 `OpenSteamTool.dll`、`dwmapi.dll`、`xinput1_4.dll`。
-- 使用 SHA-256 对比应用 `dlls` 资源与 Steam 目标目录 DLL，显示一致、不一致、未安装、资源缺失。
-- 创建和保存 `opensteamtool.toml`。
-- 每个游戏独立管理 Lua：`G-<appid>.lua`。
-- 支持禁用 Lua：`G-<appid>.lua.disabled`。
-- 导入已有 Lua，并解析 `addappid`、`addtoken`、`setManifestid` 等常见 OpenSteamTool Lua 调用。
-- 管理 Depot 与解密密钥。
-- 查看 OpenSteamTool 日志。
-- 基础 Steam 关闭与快速重启。
+> 本项目只提供桌面管理器和资源管理能力，不编译 OpenSteamTool 上游源码，也不会绕过 Steam 授权获取当前账户本地不存在的 Depot Key。
 
-## 使用方法
+## 界面预览
 
-1. 安装或运行 G-OpenSteamTool。
-2. 在概览页选择 Steam 根目录，目录中应包含 `steam.exe`。
-3. 点击 **初始化**，应用会安装 DLL 并写入默认 `opensteamtool.toml`。
-4. 在 Lua 页面新增或导入游戏配置。
-5. 重启 Steam，使 DLL 和 TOML 配置生效。
+![G-OpenSteamTool 0.3.0 概览](screenshots/overview-v0.3.0.png)
 
-## DLL 资源说明
+## 功能
 
-应用会把打包资源目录中的 DLL 复制到 Steam 根目录：
+- 自动检测 Steam 安装目录，也可手动选择包含 `steam.exe` 的目录，并在下次启动时自动恢复。
+- 扫描、安装和安全移除 `OpenSteamTool.dll`、`dwmapi.dll`、`xinput1_4.dll`。
+- 使用 SHA-256 区分托管 DLL、外部 DLL、缺失文件和已加载状态，避免误删用户文件。
+- 创建和编辑 Steam 根目录下的 `opensteamtool.toml`。
+- 按 `G-<AppId>.lua` 管理游戏配置，支持启用、禁用、导入与删除。
+- 从本地 `appcache/appinfo.vdf` 自动读取 App 名称、Depot ID 和 Public Manifest GID。
+- 从本地 `config/config.vdf` 合并当前 Steam 环境已有的 Depot Key。
+- 读取并筛选 `<Steam>/opensteamtool/*.log` 日志。
+- 在后台线程安全关闭或重启 Steam，避免界面阻塞和重复启动。
+- 纯手动发布更新，不包含应用内更新、GitHub 网络优化或 DNS 优化功能。
 
-```text
-<Steam>\OpenSteamTool.dll
-<Steam>\dwmapi.dll
-<Steam>\xinput1_4.dll
-```
+## 下载与安装
 
-DLL 页面使用 SHA-256 判断文件状态：
+前往 [Releases](https://github.com/G-Yoka/G-OpenSteamTool/releases/latest) 下载：
 
-- **一致**：资源 DLL 与 Steam 目标 DLL 完全相同。
-- **不一致**：目标 DLL 存在，但 SHA-256 与资源 DLL 不同。
-- **未安装**：目标 DLL 不存在。
-- **资源缺失**：应用资源目录中缺少对应 DLL。
+- `G-OpenSteamTool_0.3.0_x64_en-US.msi`：推荐，使用 Windows 安装程序。
+- `g-opensteamtool.exe`：便携运行版，无需安装。
+- `SHA256SUMS.txt`：用于核验下载文件完整性。
 
-移除 DLL 时，应用只会移除由本工具安装且哈希匹配的 DLL，避免误删用户已有文件。
+GitHub 自动生成的 `Source code (zip)` / `Source code (tar.gz)` 是源码，不是可直接运行的程序。完整安装与升级说明见 [docs/INSTALL.md](docs/INSTALL.md)。
 
-## Lua 管理规则
+## 快速使用
 
-托管 Lua 文件位于：
+1. 完全退出 Steam 后启动 G-OpenSteamTool。
+2. 确认自动检测到的 Steam 目录，或手动选择包含 `steam.exe` 的根目录。
+3. 点击“一键初始化”，安装托管 DLL 并创建默认 TOML。
+4. 打开“游戏配置”，输入 App ID 后点击“本地自动获取”。
+5. 核对自动发现的 Depot、Key 和 Manifest，保存为 `G-<AppId>.lua`。
+6. 重启 Steam，使 DLL、TOML 和 Lua 配置生效。
 
-```text
-<Steam>\config\lua
-```
+## Depot 本地发现
 
-命名规则：
-
-- 启用：`G-<appid>.lua`
-- 禁用：`G-<appid>.lua.disabled`
-
-示例：
-
-```lua
-addappid(1962700)
-addappid(1962701, 0, "depot_key_here")
-addtoken(1962700, "access_token_here")
-setManifestid(1962700, "manifest_gid_here")
-```
-
-导入 Lua 时，应用会尽量从文件名、注释、`addappid(...)` 和元数据中识别 AppId，并写入托管文件 `G-<appid>.lua`。
-
-## TOML 设置
-
-配置文件写入 Steam 根目录：
+Steam 的两个本地文件承担不同职责：
 
 ```text
-<Steam>\opensteamtool.toml
+<Steam>/appcache/appinfo.vdf   App ID → App 名称 / Depot ID / Public Manifest
+<Steam>/config/config.vdf     Depot ID → DecryptionKey
 ```
 
-当前界面支持快速编辑：
+G-OpenSteamTool 按 Depot ID 合并两者。没有显示 Key 通常表示当前 Steam 本地配置尚未保存该 Depot 的 Key；应用不会生成、猜测或联网绕过授权获取 Key。
 
-- 日志等级
-- Manifest 来源：`wudrm` / `steamrun`
-- HTTP timeout
-- 额外 Lua 路径
-- Pattern mirror
+## 安全边界
 
-## 在线更新与 GitHub DNS 优化
+- DLL 移除只处理由本工具安装且哈希匹配的文件。
+- Lua 管理只操作 `G-*.lua` 与 `G-*.lua.disabled`，不主动改写普通 Lua。
+- TOML、Lua 和安装清单采用临时文件与回滚写入，降低中途失败造成文件损坏的风险。
+- Depot Key 仅在本地读取和写入用户选择的配置，不写入应用日志。
+- 0.3.0 不包含应用内更新、GitHub Release 查询、DoT 或 DNS 优化代码。
 
-关于页支持通过 GitHub Releases 检查正式版本。发布新版本时，需要在
-`G-Yoka/G-OpenSteamTool` 的 Release 中上传 Tauri updater 所需的安装包、
-签名文件和 `latest.json`。应用内会优先使用 Tauri updater 执行检查、下载和安装。
+## 从源码构建
 
-设置页提供 **GitHub DNS 优化** 开关。该功能只影响应用内 GitHub Release/API
-诊断请求，使用 Cloudflare 与 Google 的 DNS over TLS 解析 GitHub 相关域名，
-不会修改系统 DNS、hosts 或代理。Tauri updater 插件自身的下载链路仍由插件网络栈处理；
-如果正式更新检查失败，应用会使用 DoT-aware GitHub API 请求给出诊断和手动下载提示。
+需要 Node.js、Rust MSVC 工具链和 Visual Studio Build Tools（Desktop development with C++）。
 
-## 日志查看
+```powershell
+cd app
+npm ci
+npm run build
+cargo test --manifest-path src-tauri/Cargo.toml
+npm run build:tauri-release
+```
 
-日志页读取 `<Steam>\opensteamtool\*.log`，并显示文件大小、行数和最后修改时间。
-日志内容会按行解析时间、等级和消息，支持等级筛选、关键词搜索、自动滚动到底部和换行显示。
-为避免大日志卡顿，应用只读取单个日志文件末尾约 80KB 内容。
-
-## 目录结构
+构建产物位于：
 
 ```text
-src/                         React 前端
-src-tauri/                   Tauri / Rust 后端
-src-tauri/resources/dlls/    打包 DLL 资源
-src-tauri/tests/             Rust 集成测试
+app/src-tauri/target/release/g-opensteamtool.exe
+app/src-tauri/target/release/bundle/msi/G-OpenSteamTool_0.3.0_x64_en-US.msi
 ```
 
-## 注意事项
+## 仓库结构
 
-- 应用不会在内部构建 OpenSteamTool DLL。
-- Lua 管理只操作 `G-*.lua` 和 `G-*.lua.disabled`，不会主动修改普通 `.lua` 文件。
-- 如果 Steam 正在运行，安装或修改 DLL/TOML 后建议重启 Steam。
-- Git 仓库不提交 `node_modules/`、`dist/`、`target/`、MSI 或 exe 构建产物。
+```text
+G-OpenSteamTool/
+├── app/
+│   ├── src/                     React / TypeScript 前端
+│   ├── src-tauri/
+│   │   ├── src/                 Rust 后端与 services 分层
+│   │   ├── tests/               Rust 集成测试
+│   │   ├── resources/dlls/      打包 DLL 资源
+│   │   └── icons/               应用图标资源
+│   ├── package.json
+│   └── vite.config.ts
+├── docs/
+│   ├── README.md                文档索引
+│   ├── README.en.md             English documentation
+│   ├── INSTALL.md               安装与升级说明
+│   ├── CHANGELOG.md             版本变更记录
+│   └── releases/                各版本发布说明
+├── screenshots/
+├── README.md
+└── .gitignore
+```
 
-## 项目信息
+## 文档
 
-- 作者：G-Yoka
-- 版本：0.2.2
-- 项目地址：https://github.com/G-Yoka/G-OpenSteamTool
+- [安装、升级与卸载](docs/INSTALL.md)
+- [版本变更记录](docs/CHANGELOG.md)
+- [v0.3.0 发布说明](docs/releases/v0.3.0.md)
+- [English README](docs/README.en.md)
+
+## 说明
+
+G-OpenSteamTool 是非官方社区项目，与 Valve、Steam 或 OpenSteamTool 上游作者不存在隶属关系。使用前请确认符合所在地区法律、Steam 协议及相关软件许可；用户对自己的配置和使用结果负责。
 
