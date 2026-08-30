@@ -6,6 +6,7 @@
 - 全新应用图标，并同步到窗口、概览、关于页与 EXE。
 - 将三项托管 DLL 资源直接内嵌到便携 EXE，不再发布 MSI 安装器。
 - 自动从 Steam 本地 `appinfo.vdf` 和 `config.vdf` 发现 App、Depot、Manifest 与已有 Depot Key。
+- 本地自动获取 Depot 时自动追加当前游戏 App ID，并生成 `addappid(<AppId>)`。
 - 修复窗口拖动、最小化、关闭按钮和 Steam 目录持久化。
 - 修复关闭状态下重启 Steam 导致重复启动，以及同步等待造成界面无响应的问题。
 - 移除应用内在线更新、更新通道、GitHub 网络优化和 DNS/DoT 优化。

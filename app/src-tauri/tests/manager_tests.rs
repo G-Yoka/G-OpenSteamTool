@@ -6,8 +6,8 @@ use g_opensteamtool::manager::{
     parse_steam_manifest_version, read_logs_from_dir, remove_dlls_from_dir, render_game_lua,
     resolve_dll_resource_dir_from_candidates, save_settings_to_dir, scan_state_with_assets,
     scan_state_with_bundled_assets, set_game_enabled_in_dir, steam_shutdown_command_specs,
-    strip_verbatim_prefix, upsert_game_in_dir, validate_steam_dir, DllLoadState, DllState,
-    GameConfig, ManagerSettings, ManifestEntry,
+    strip_verbatim_prefix, upsert_game_in_dir, validate_steam_dir, AppIdEntry, DllLoadState,
+    DllState, GameConfig, ManagerSettings, ManifestEntry,
 };
 
 fn make_steam_dir() -> tempfile::TempDir {
@@ -110,6 +110,34 @@ fn render_game_lua_uses_manifest_entries_when_present() {
     assert!(lua.contains("setManifestid(753641, \"1111111111111111111\")"));
     assert!(lua.contains("setManifestid(753642, \"2222222222222222222\")"));
     assert!(!lua.contains("setManifestid(753640, \"5656605350306673283\")"));
+}
+
+#[test]
+fn render_game_lua_keeps_depot_key_entry_and_plain_game_appid() {
+    let mut game = sample_game();
+    game.appid = 4_948_000;
+    game.appid_entries = vec![
+        AppIdEntry {
+            appid: 4_948_001,
+            unlock_flag: Some(0),
+            depot_key: Some(
+                "030610fee4a0d13bbc99e06c4e90d278d6c68c3634a56305e2930c8883c9a63a".into(),
+            ),
+        },
+        AppIdEntry {
+            appid: 4_948_000,
+            unlock_flag: None,
+            depot_key: None,
+        },
+    ];
+
+    let lua = render_game_lua(&game).unwrap();
+    let depot = lua
+        .find("addappid(4948001, 0, \"030610fee4a0d13bbc99e06c4e90d278d6c68c3634a56305e2930c8883c9a63a\")")
+        .unwrap();
+    let app = lua.find("addappid(4948000)").unwrap();
+
+    assert!(depot < app);
 }
 
 #[test]

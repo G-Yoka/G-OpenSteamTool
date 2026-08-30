@@ -27,6 +27,7 @@ G-OpenSteamTool 是面向 Windows 的 OpenSteamTool 桌面管理器，用一个�
 - 按 `G-<AppId>.lua` 管理游戏配置，支持启用、禁用、导入与删除。
 - 从本地 `appcache/appinfo.vdf` 自动读取 App 名称、Depot ID 和 Public Manifest GID。
 - 从本地 `config/config.vdf` 合并当前 Steam 环境已有的 Depot Key。
+- 本地自动获取会同时补充当前游戏 App ID，生成不带 Key 的 `addappid(<AppId>)` 条目。
 - 读取并筛选 `<Steam>/opensteamtool/*.log` 日志。
 - 在后台线程安全关闭或重启 Steam，避免界面阻塞和重复启动。
 - 纯手动发布更新，不包含应用内更新、GitHub 网络优化或 DNS 优化功能。

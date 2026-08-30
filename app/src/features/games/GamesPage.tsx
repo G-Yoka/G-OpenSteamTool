@@ -21,14 +21,18 @@ export function GamesPage({ controller }: { controller: AppController }) {
   async function autoDiscoverDepots() {
     const result = await actions.discoverDepots(form.appid);
     if (!result) return;
+    const depotEntries = result.depots.map((depot) => ({
+      appid: depot.depot_id,
+      unlock_flag: depot.depot_key ? 0 : null,
+      depot_key: depot.depot_key ?? "",
+    }));
+    const appEntries = depotEntries.some((entry) => entry.appid === result.appid)
+      ? depotEntries
+      : [...depotEntries, { appid: result.appid, unlock_flag: null, depot_key: "" }];
     setForm({
       ...form,
       name: form.name || result.name,
-      appid_entries: result.depots.map((depot) => ({
-        appid: depot.depot_id,
-        unlock_flag: depot.depot_key ? 0 : null,
-        depot_key: depot.depot_key ?? "",
-      })),
+      appid_entries: appEntries,
       manifest_entries: result.depots
         .filter((depot) => depot.manifest_gid)
         .map((depot) => ({ depot_id: depot.depot_id, manifest_gid: depot.manifest_gid ?? "" })),
@@ -53,7 +57,7 @@ export function GamesPage({ controller }: { controller: AppController }) {
       <header className="editor-head"><div className="editor-title"><span><FileCode2 size={21} /></span><div><h2>{form.appid ? `编辑 G-${form.appid}.lua` : "新建游戏配置"}</h2><p>常用选项在上，高级凭据按需展开</p></div></div><Toggle checked={form.enabled} onChange={(enabled) => setForm({ ...form, enabled })} label={form.enabled ? "启用" : "禁用"} /></header>
       <div className="editor-scroll">
         <section className="form-section"><div className="form-section-title"><span>01</span><div><h3>游戏信息</h3><p>用于文件命名和配置识别</p></div></div><div className="form-grid two"><Field label="AppId"><input inputMode="numeric" value={form.appid || ""} onChange={(event) => setForm({ ...form, appid: Number(event.target.value) || 0 })} placeholder="例如 730" /></Field><Field label="显示名称"><input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="例如 Counter-Strike 2" /></Field></div></section>
-        <section className="form-section"><div className="form-section-title"><span>02</span><div><h3>Depot 解密</h3><p>从 Steam 本地缓存自动关联 Depot ID、Key 和 Manifest</p></div><button className="text-button" disabled={disabled || !form.appid} onClick={() => void autoDiscoverDepots()}><ScanSearch size={15} />本地自动获取</button><button className="text-button" onClick={() => setForm({ ...form, appid_entries: [...(form.appid_entries ?? []), { appid: form.appid || 0, unlock_flag: null, depot_key: "" }] })}><Plus size={15} />添加一行</button></div>
+        <section className="form-section"><div className="form-section-title"><span>02</span><div><h3>Depot 解密</h3><p>自动关联 Depot ID、Key、Manifest，并补充当前 App ID</p></div><button className="text-button" disabled={disabled || !form.appid} onClick={() => void autoDiscoverDepots()}><ScanSearch size={15} />本地自动获取</button><button className="text-button" onClick={() => setForm({ ...form, appid_entries: [...(form.appid_entries ?? []), { appid: form.appid || 0, unlock_flag: null, depot_key: "" }] })}><Plus size={15} />添加一行</button></div>
           <div className="entry-table"><div className="entry-head"><span>App / Depot ID</span><span>解锁标记</span><span>64 位 Depot Key</span><span /></div>{(form.appid_entries ?? []).map((entry, index) => <div className="entry-row" key={index}><input inputMode="numeric" value={entry.appid || ""} onChange={(event) => updateAppEntry(form, setForm, index, { appid: Number(event.target.value) || 0 })} placeholder="AppId" /><input inputMode="numeric" value={entry.unlock_flag ?? ""} onChange={(event) => updateAppEntry(form, setForm, index, { unlock_flag: event.target.value ? Number(event.target.value) : null })} placeholder="可选" /><input className="mono" value={entry.depot_key ?? ""} onChange={(event) => updateAppEntry(form, setForm, index, { depot_key: event.target.value })} placeholder="可选，64 位十六进制" /><button className="icon-danger" onClick={() => setForm({ ...form, appid_entries: form.appid_entries?.filter((_, itemIndex) => itemIndex !== index) })}><Trash2 size={16} /></button></div>)}{!(form.appid_entries ?? []).length && <button className="empty-row" onClick={() => setForm({ ...form, appid_entries: [{ appid: form.appid || 0, unlock_flag: null, depot_key: "" }] })}><Plus size={16} />添加 Depot 条目</button>}</div>
         </section>
         <section className="form-section"><div className="form-section-title"><span>03</span><div><h3>Manifest</h3><p>将 Depot ID 映射到 Manifest GID</p></div><button className="text-button" onClick={() => setForm({ ...form, manifest_entries: [...(form.manifest_entries ?? []), { depot_id: form.appid || 0, manifest_gid: "" }] })}><Plus size={15} />添加一行</button></div>
