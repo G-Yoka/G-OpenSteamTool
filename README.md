@@ -1,5 +1,8 @@
 # G-OpenSteamTool
 
+[![Downloads](https://img.shields.io/github/downloads/G-Yoka/G-OpenSteamTool/latest/total?label=Downloads)](https://github.com/G-Yoka/G-OpenSteamTool/releases/latest)
+[![往期下载量合计](https://img.shields.io/github/downloads/G-Yoka/G-OpenSteamTool/total?label=%E5%BE%80%E6%9C%9F%E4%B8%8B%E8%BD%BD%E9%87%8F%E5%90%88%E8%AE%A1)](https://github.com/G-Yoka/G-OpenSteamTool/releases)
+
 🌐 语言 / Language：**简体中文** · [English](docs/README.en.md)
 
 G-OpenSteamTool 是面向 Windows 的 OpenSteamTool 桌面管理器，用一个直观的工作区管理 Steam 目录、运行组件、游戏 Lua、Depot 信息、TOML 设置和运行日志。
@@ -119,4 +122,3 @@ G-OpenSteamTool/
 ## 说明
 
 G-OpenSteamTool 是非官方社区项目，与 Valve、Steam 或 OpenSteamTool 上游作者不存在隶属关系。使用前请确认符合所在地区法律、Steam 协议及相关软件许可；用户对自己的配置和使用结果负责。
-
