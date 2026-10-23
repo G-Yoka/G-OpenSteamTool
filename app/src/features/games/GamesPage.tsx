@@ -14,18 +14,19 @@ export function GamesPage({ controller }: { controller: AppController }) {
   // Keep the editor in sync with the on-disk state: toggling a config renames
   // the file, and a stale `form.enabled` would write the opposite copy back.
   useEffect(() => {
-    if (!form.appid) return;
+    if (!form.appid || state.activity !== "idle") return;
     const current = state.games.find((game) => game.appid === form.appid);
     if (current && current.enabled !== form.enabled) {
       setForm((prev) => ({ ...prev, enabled: current.enabled }));
     }
-  }, [state.games, form.appid, form.enabled]);
+  }, [state.games, form.appid, form.enabled, state.activity]);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return needle ? state.games.filter((game) => `${game.appid} ${game.name}`.toLowerCase().includes(needle)) : state.games;
   }, [query, state.games]);
   const disabled = !state.steamDir || state.activity !== "idle";
+  const onDisk = state.games.find((game) => game.appid === form.appid);
 
   function newGame() { actions.newGame(); setForm(emptyGame); }
 
@@ -91,7 +92,15 @@ export function GamesPage({ controller }: { controller: AppController }) {
         <div className="editor-head">
           <span className="file"><FileCode2 size={12} />{form.appid ? `G-${form.appid}.lua` : "新建配置"}</span>
           <span className="right">
-            <Toggle checked={form.enabled} onChange={(enabled) => setForm({ ...form, enabled })} label={form.enabled ? "启用" : "禁用"} />
+            <Toggle
+              checked={form.enabled}
+              onChange={(enabled) => {
+                setForm({ ...form, enabled });
+                // 已存在的配置：启停就是改文件名，交给后端；新建配置只是草稿状态
+                if (onDisk) void actions.setGameEnabled(form.appid, enabled);
+              }}
+              label={form.enabled ? "启用" : "禁用"}
+            />
           </span>
         </div>
 

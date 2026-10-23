@@ -151,6 +151,12 @@ export function useAppController() {
       catch { /* run already reported the failure */ }
     },
     deleteGame: (appid: number) => run(() => deleteGame(steamDir, appid), "正在删除 Lua 配置…", `G-${appid}.lua 已删除`, ["games", "scan"]).catch(() => undefined),
+    setGameEnabled: (appid: number, enabled: boolean) => run(
+      () => setGameEnabled(steamDir, appid, enabled),
+      "正在切换配置状态…",
+      enabled ? "配置已启用" : "配置已禁用",
+      ["games", "scan"],
+    ).catch(() => undefined),
     toggleGame: (game: GameConfig) => run(() => setGameEnabled(steamDir, game.appid, !game.enabled), "正在切换配置状态…", game.enabled ? "配置已禁用" : "配置已启用", ["games", "scan"]).catch(() => undefined),
     discoverDepots: async (appid: number) => {
       if (!appid) { notify("error", "请先输入有效 AppId"); return null; }
