@@ -1,5 +1,12 @@
 # 版本变更记录
 
+## v0.10.0
+
+- 一键初始化现在会同时生成通道数据：pattern 两条，ipc 在已记住 IDL 时一并生成。
+- 通道页新增「全部生成」，一次刷新三条通道并报告跳过项。
+- ipc 缺少 IDL 时只跳过该通道，不影响 pattern 写入与初始化结果。
+- 生成时 steamclient64.dll 只解析一次，pattern 与 ipc 共用同一份 PE 映像。
+
 ## v0.9.1
 
 - 修复禁用配置后 `G-<AppId>.lua` 与 `G-<AppId>.lua.disabled` 并存：写入时删除对侧文件，一个 AppId 只保留一份。

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   closeSteam, deleteGame, detectSteamDir, discoverDepots, importLuaFile, inspectBuild,
-  generateChannelFile, installChannelFile, installDlls, pickIdlFile, listGames, loadSettings, openLuaDir, pickSteamDir,
+  generateAllChannels, generateChannelFile, installChannelFile, installDlls, pickIdlFile, listGames, loadSettings, openLuaDir, pickSteamDir,
   pickTomlFile, readLogs, removeChannelFile, removeDlls, restartSteam,
   saveSettings, scanState, setGameEnabled, upsertGame,
 } from "../api";
@@ -139,7 +139,37 @@ export function useAppController() {
       finally { setActivity("idle"); }
     },
     refreshAll: () => run(async () => undefined, "正在刷新全部状态…", "状态已刷新", ["all"]).catch(() => undefined),
-    initialize: () => run(async () => { await installDlls(steamDir); await saveSettings(steamDir, defaultSettings); }, "正在安装组件并创建配置…", "初始化完成", ["all"]).catch(() => undefined),
+    initialize: async () => {
+      setActivity("working");
+      notify("working", "正在安装组件、创建配置并生成通道数据…");
+      try {
+        await installDlls(steamDir);
+        await saveSettings(steamDir, defaultSettings);
+        const report = await generateAllChannels(steamDir, localStorage.getItem("gost.idl"));
+        const done = report.files.map((file) => `${file.channel}/${file.component}`).join("、");
+        const skipped = report.skipped.length ? `；跳过 ${report.skipped.join("，")}` : "";
+        await refreshAll();
+        notify("success", `初始化完成：已生成 ${done || "0 个通道"}${skipped}`);
+      } catch (error) {
+        notify("error", errorMessage(error));
+      } finally {
+        setActivity("idle");
+      }
+    },
+    generateAll: async () => {
+      setActivity("working");
+      notify("working", "正在为当前 Steam 构建生成全部通道…");
+      try {
+        const report = await generateAllChannels(steamDir, localStorage.getItem("gost.idl"));
+        await refreshAll();
+        const skipped = report.skipped.length ? `；跳过 ${report.skipped.join("，")}` : "";
+        notify("success", `已生成 ${report.files.length} 个通道${skipped}；重启 Steam 生效`);
+      } catch (error) {
+        notify("error", errorMessage(error));
+      } finally {
+        setActivity("idle");
+      }
+    },
     installDlls: () => run(() => installDlls(steamDir), "正在安装 DLL…", "DLL 安装完成", ["scan"]).catch(() => undefined),
     removeDlls: () => run(() => removeDlls(steamDir), "正在安全移除 DLL…", "DLL 已移除", ["scan"]).catch(() => undefined),
     closeSteam: () => run(closeSteam, "正在关闭 Steam…", "Steam 已关闭", ["scan"]).catch(() => undefined),

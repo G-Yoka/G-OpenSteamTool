@@ -5,6 +5,7 @@
 - [安装、升级与卸载](INSTALL.md)
 - [版本变更记录](CHANGELOG.md)
 - [数据通道生成（pattern / ipc）](PATTERN.md)
+- [v0.10.0 发布说明](releases/v0.10.0.md)
 - [v0.9.1 发布说明](releases/v0.9.1.md)
 - [v0.9.0 发布说明](releases/v0.9.0.md)
 - [v0.8.0 发布说明](releases/v0.8.0.md)

@@ -136,6 +136,17 @@ fn install_channel_file(
 }
 
 #[tauri::command]
+async fn generate_all_channels(
+    steam_dir: String,
+    idl: Option<String>,
+) -> CommandResult<services::channels::GenerateReport> {
+    tauri::async_runtime::spawn_blocking(move || {
+        services::channels::generate_all(steam_dir, idl)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
 async fn generate_channel_file(
     steam_dir: String,
     channel: String,
@@ -214,6 +225,7 @@ pub fn run() {    tauri::Builder::default()
             inspect_build,
             install_channel_file,
             generate_channel_file,
+            generate_all_channels,
             remove_channel_file,
             list_crash_dumps,
             close_steam,

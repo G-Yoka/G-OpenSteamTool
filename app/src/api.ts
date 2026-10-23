@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import type {
-  AppMetadata, BuildInspection, ChannelFile, CrashDump, DepotDiscovery, GameConfig, LogFile,
+  AppMetadata, BuildInspection, ChannelFile, CrashDump, DepotDiscovery, GameConfig, GenerateReport, LogFile,
   ManagerSettings, ScanState,
 } from "./types";
 import { PREVIEW_STEAM_DIR, previewBuild, previewGames, previewLogs, previewScan, previewSettings } from "./app/preview";
@@ -149,6 +149,10 @@ export async function generateChannelFile(
   return invoke<ChannelFile>("generate_channel_file", { steamDir, channel, component, idl: idl ?? null });
 }
 
+export async function generateAllChannels(steamDir: string, idl?: string | null): Promise<GenerateReport> {
+  if (!hasTauri()) throw new Error("预览模式无法生成通道文件");
+  return invoke<GenerateReport>("generate_all_channels", { steamDir, idl: idl ?? null });
+}
 export async function pickIdlFile(): Promise<string | null> {
   if (!hasTauri()) return null;
   const picked = await open({

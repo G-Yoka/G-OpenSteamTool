@@ -41,6 +41,11 @@ export type ManagerSettings = {
   pattern_mirror: string;
 };
 
+export type GenerateReport = {
+  files: ChannelFile[];
+  skipped: string[];
+};
+
 export type ChannelFile = {
   channel: string;
   component: string;

@@ -144,6 +144,7 @@ export function ChannelsPage({ controller }: { controller: AppController }) {
             {dllReady && (
               <SideAction icon={<Box size={12} />} title="查看组件" sub="DLL 在位与加载状态" onClick={() => actions.setPage("dlls")} />
             )}
+            <SideAction icon={<Sparkles size={12} />} title="全部生成" sub="pattern + ipc 一次刷新" onClick={() => void actions.generateAll()} />
             <SideAction icon={<FolderOpen size={12} />} title="打开日志" sub="看通道是否被真正读取" onClick={() => actions.setPage("logs")} />
           </div>
         </Card>

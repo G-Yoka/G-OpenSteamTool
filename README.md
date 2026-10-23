@@ -7,7 +7,7 @@
 
 G-OpenSteamTool 是面向 Windows 的 OpenSteamTool 桌面管理器，用一个直观的工作区管理 Steam 目录、运行组件、游戏 Lua、Depot 信息、TOML 设置和运行日志。
 
-- 当前版本：`v0.9.1`
+- 当前版本：`v0.10.0`
 - 运行环境：Windows 10/11 x64
 - 技术栈：Tauri 2 / Rust / React / TypeScript
 - 更新方式：从 [GitHub Releases](https://github.com/G-Yoka/G-OpenSteamTool/releases) 手动下载
@@ -55,7 +55,7 @@ GitHub 自动生成的 `Source code (zip)` / `Source code (tar.gz)` 是源码，
 3. 点击“一键初始化”，安装托管 DLL 并创建默认 TOML。
 4. 打开“游戏配置”，输入 App ID 后点击“本地自动获取”。
 5. 核对自动发现的 Depot、Key 和 Manifest，保存为 `G-<AppId>.lua`。
-6. 在数据通道页点「生成」，应用会按当前 Steam 构建生成 pattern 通道文件。
+6. 一步初始化已同时生成通道数据；后续 Steam 更新后在数据通道页点「全部生成」即可刷新。
 7. 重启 Steam，使 DLL、TOML、通道数据和 Lua 配置生效。
 
 ## Depot 本地发现
@@ -125,6 +125,7 @@ G-OpenSteamTool/
 
 - [安装、升级与卸载](docs/INSTALL.md)
 - [版本变更记录](docs/CHANGELOG.md)
+- [v0.10.0 发布说明](docs/releases/v0.10.0.md)
 - [v0.9.1 发布说明](docs/releases/v0.9.1.md)
 - [v0.9.0 发布说明](docs/releases/v0.9.0.md)
 - [v0.8.0 发布说明](docs/releases/v0.8.0.md)

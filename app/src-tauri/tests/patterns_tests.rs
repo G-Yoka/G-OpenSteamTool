@@ -119,3 +119,40 @@ fn ipc_without_idl_is_rejected() {
     .unwrap_err();
     assert!(err.contains("IPCMessages"), "unexpected error: {err}");
 }
+
+#[test]
+fn generate_all_writes_pattern_channels_and_reports_skips() {
+    let Ok(ui) = std::env::var("OST_TEST_STEAMUI") else {
+        return;
+    };
+    let Ok(client) = std::env::var("OST_TEST_STEAMCLIENT") else {
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("steam.exe"), b"fake").unwrap();
+    std::fs::copy(Path::new(&ui), dir.path().join("steamui.dll")).unwrap();
+    std::fs::copy(Path::new(&client), dir.path().join("steamclient64.dll")).unwrap();
+    let steam_dir = dir.path().to_string_lossy().into_owned();
+
+    // Without an IDL the two pattern channels are still written.
+    let report = g_opensteamtool::services::channels::generate_all(steam_dir.clone(), None)
+        .expect("generate_all");
+    let written: Vec<String> = report
+        .files
+        .iter()
+        .map(|f| format!("{}/{}", f.channel, f.component))
+        .collect();
+    assert!(written.contains(&"pattern/steamui".to_string()));
+    assert!(written.contains(&"pattern/steamclient".to_string()));
+    assert_eq!(report.skipped.len(), 1, "ipc must be reported as skipped");
+    assert!(report.skipped[0].contains("IPCMessages"));
+
+    // With an IDL the same call also writes ipc.
+    if let Ok(idl) = std::env::var("OST_TEST_IDL") {
+        let report = g_opensteamtool::services::channels::generate_all(steam_dir, Some(idl))
+            .expect("generate_all with idl");
+        assert_eq!(report.files.len(), 3, "three channels expected");
+        assert!(report.skipped.is_empty());
+        assert!(report.files.iter().any(|f| f.channel == "ipc" && f.present));
+    }
+}

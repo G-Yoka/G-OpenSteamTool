@@ -474,11 +474,69 @@ pub fn generate_channel(
         }
         other => return Err(format!("未知通道: {other}")),
     };
-    let target_dir = dir.join("opensteamtool").join(&channel).join(&component);
+    write_generated(&dir, &channel, generated)
+}
+
+fn write_generated(
+    steam_dir: &Path,
+    channel: &str,
+    generated: patterns::GeneratedPattern,
+) -> Result<ChannelFile> {
+    let target_dir = steam_dir
+        .join("opensteamtool")
+        .join(channel)
+        .join(&generated.component);
     std::fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
     let target = target_dir.join(format!("{}.toml", generated.sha256));
     write_atomic(&target, generated.text.as_bytes())?;
-    Ok(inspect_channel(&dir, &channel, &component))
+    Ok(inspect_channel(steam_dir, channel, &generated.component))
+}
+
+/// Outcome of a full regeneration: which channels were written, which were skipped.
+#[derive(Debug, Clone, Serialize)]
+pub struct GenerateReport {
+    pub files: Vec<ChannelFile>,
+    pub skipped: Vec<String>,
+}
+
+/// Generate every channel that can be produced without further input.
+///
+/// `pattern` needs only the DLL; `ipc` additionally needs the upstream IDL, and a
+/// failure there is reported in `skipped` instead of aborting the whole run — a
+/// missing IDL must not stop the two pattern channels from being written.
+pub fn generate_all(steam_dir: String, idl: Option<String>) -> Result<GenerateReport> {
+    let dir = manager::validate_steam_dir(&steam_dir)?;
+    let mut files = Vec::new();
+    let mut skipped = Vec::new();
+
+    let ui = dir.join("steamui.dll");
+    if ui.is_file() {
+        files.push(write_generated(&dir, "pattern", patterns::generate(&ui, "steamui")?)?);
+    } else {
+        skipped.push("steamui.dll 不存在".to_string());
+    }
+
+    let client = dir.join("steamclient64.dll");
+    if client.is_file() {
+        // Parse the 26 MB image once for both channels.
+        let image = patterns::pe::Pe::load(&client).map_err(|e| e.to_string())?;
+        files.push(write_generated(
+            &dir,
+            "pattern",
+            patterns::generate_from(&image, &client, "steamclient")?,
+        )?);
+        match idl {
+            Some(path) => match patterns::generate_ipc_from(&image, &client, Path::new(&path)) {
+                Ok(generated) => files.push(write_generated(&dir, "ipc", generated)?),
+                Err(err) => skipped.push(format!("ipc：{err}")),
+            },
+            None => skipped.push("ipc：尚未选择 IPCMessages.steamd".to_string()),
+        }
+    } else {
+        skipped.push("steamclient64.dll 不存在".to_string());
+    }
+
+    Ok(GenerateReport { files, skipped })
 }
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
