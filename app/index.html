@@ -4,6 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>G-OpenSteamTool</title>
+    <script>
+      /* 首帧前决定主题：默认浅色，只认用户显式选过的深色，避免深色闪一帧 */
+      try {
+        var saved = localStorage.getItem("gost.theme");
+        document.documentElement.dataset.theme = saved === "dark" ? "dark" : "light";
+      } catch (e) {
+        document.documentElement.dataset.theme = "light";
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

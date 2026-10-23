@@ -1,46 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { AppMetadata, DepotDiscovery, GameConfig, LogFile, ManagerSettings, ScanState } from "./types";
+import type {
+  AppMetadata, BuildInspection, ChannelFile, CrashDump, DepotDiscovery, GameConfig, LogFile,
+  ManagerSettings, ScanState,
+} from "./types";
+import { PREVIEW_STEAM_DIR, previewBuild, previewGames, previewLogs, previewScan, previewSettings } from "./app/preview";
 
 const hasTauri = () => "__TAURI_INTERNALS__" in window;
 
-const previewDll = (steamDir: string, name: string): ScanState["dlls"][number] => ({
-  name,
-  state: "Missing",
-  target_path: `${steamDir}\\${name}`,
-  resource_hash: null,
-  target_hash: null,
-  hash_matched: false,
-  loaded_by_steam: false,
-  load_state: "SteamNotRunning",
-});
-
-const previewState = (steamDir: string): ScanState => ({
-  steam_dir: steamDir,
-  steam_valid: Boolean(steamDir),
-  steam_running: false,
-  steam_version: null,
-  config_exists: false,
-  lua_count: 0,
-  dlls: ["OpenSteamTool.dll", "dwmapi.dll", "xinput1_4.dll"].map((name) => previewDll(steamDir, name)),
-  dll_resources_ready: false,
-  missing_dll_resources: ["OpenSteamTool.dll", "dwmapi.dll", "xinput1_4.dll"],
-  log_files: [],
-});
-
-const previewSettings: ManagerSettings = {
-  log_level: "info",
-  manifest_url: "wudrm",
-  timeout_resolve_ms: 5000,
-  timeout_connect_ms: 5000,
-  timeout_send_ms: 10000,
-  timeout_recv_ms: 10000,
-  lua_paths: [],
-  pattern_mirror: "",
-};
-
 export async function detectSteamDir(): Promise<string | null> {
-  if (!hasTauri()) return null;
+  if (!hasTauri()) return PREVIEW_STEAM_DIR;
   return invoke<string | null>("detect_steam_dir");
 }
 
@@ -51,7 +20,7 @@ export async function pickSteamDir(): Promise<string | null> {
 }
 
 export async function scanState(steamDir: string): Promise<ScanState> {
-  if (!hasTauri()) return previewState(steamDir);
+  if (!hasTauri()) return previewScan(steamDir || PREVIEW_STEAM_DIR);
   return invoke<ScanState>("scan_state", { steamDir });
 }
 
@@ -76,7 +45,7 @@ export async function saveSettings(steamDir: string, settings: ManagerSettings):
 }
 
 export async function listGames(steamDir: string): Promise<GameConfig[]> {
-  if (!hasTauri()) return [];
+  if (!hasTauri()) return previewGames();
   return invoke<GameConfig[]>("list_games", { steamDir });
 }
 
@@ -111,7 +80,7 @@ export async function fetchAppMetadata(appid: number): Promise<AppMetadata> {
 }
 
 export async function readLogs(steamDir: string): Promise<LogFile[]> {
-  if (!hasTauri()) return [];
+  if (!hasTauri()) return previewLogs();
   return invoke<LogFile[]>("read_logs", { steamDir });
 }
 
@@ -130,17 +99,67 @@ export async function minimizeWindow(): Promise<void> {
   return invoke("minimize_window");
 }
 
+export async function toggleMaximize(): Promise<void> {
+  if (!hasTauri()) return;
+  return invoke("toggle_maximize");
+}
+
 export async function closeWindow(): Promise<void> {
   if (!hasTauri()) return;
   return invoke("close_window");
 }
 
 export async function discoverDepots(steamDir: string, appid: number): Promise<DepotDiscovery> {
-  if (!hasTauri()) return { appid, name: `App ${appid}`, depots: [], app_source: "preview", config_found: false };
+  if (!hasTauri()) {
+    return {
+      appid,
+      name: `App ${appid}`,
+      depots: [
+        { depot_id: appid + 1, depot_key: "7d8f3c1a9e5b2046d1c8f7a3b6e90d24c5f1a8b7", manifest_gid: "4820981377404920371" },
+        { depot_id: appid + 2, depot_key: null, manifest_gid: "7391024751209384756" },
+      ],
+      app_source: "preview",
+      config_found: true,
+    };
+  }
   return invoke<DepotDiscovery>("discover_depots", { steamDir, appid });
 }
 
 export async function startWindowDrag(): Promise<void> {
   if (!hasTauri()) return;
   return invoke("start_window_drag");
+}
+
+export async function inspectBuild(steamDir: string): Promise<BuildInspection> {
+  if (!hasTauri()) return previewBuild(steamDir || PREVIEW_STEAM_DIR);
+  return invoke<BuildInspection>("inspect_build", { steamDir });
+}
+
+export async function installChannelFile(
+  steamDir: string, channel: string, component: string, source: string,
+): Promise<ChannelFile> {
+  if (!hasTauri()) throw new Error("预览模式无法安装通道文件");
+  return invoke<ChannelFile>("install_channel_file", { steamDir, channel, component, source });
+}
+
+export async function removeChannelFile(
+  steamDir: string, channel: string, component: string,
+): Promise<ChannelFile> {
+  if (!hasTauri()) throw new Error("预览模式无法移除通道文件");
+  return invoke<ChannelFile>("remove_channel_file", { steamDir, channel, component });
+}
+
+export async function listCrashDumps(steamDir: string): Promise<CrashDump[]> {
+  if (!hasTauri()) return [];
+  return invoke<CrashDump[]>("list_crash_dumps", { steamDir });
+}
+
+export async function pickTomlFile(): Promise<string | null> {
+  if (!hasTauri()) return null;
+  const picked = await open({
+    multiple: false,
+    title: "选择通道数据文件（<sha256>.toml）",
+    filters: [{ name: "OpenSteamTool data", extensions: ["toml"] }],
+  });
+  return typeof picked === "string" ? picked : null;
 }

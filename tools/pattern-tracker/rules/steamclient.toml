@@ -1,0 +1,185 @@
+# Rules for steamclient64.dll.
+#
+# Same contract as rules/steamui.toml: one deterministic predicate per hook,
+# no guessing. Hooks absent from this file are reported UNRESOLVED.
+
+channel = "steamclient"
+
+[[hook]]
+name = "BuildSpawnEnvBlock"
+kind = "anchor"
+strings = ["STEAM_OVERLAY_WINDOW_BLACKLIST"]
+note = "overlay blacklist env var name; referenced once"
+
+[[hook]]
+name = "CloseAppCloud"
+kind = "anchor"
+strings = ["hidecloudui"]
+note = "console/launch-option literal, unique to this function"
+
+[[hook]]
+name = "GetAppDataFromAppInfo"
+kind = "anchor"
+strings = ["name_localized/%s"]
+note = "format literal built by this helper"
+
+[[hook]]
+name = "IPCProcessMessage"
+kind = "anchor"
+strings = ["Unknown IPC command code /+/ %u.  %s"]
+note = "log literal inside the dispatcher; unambiguous"
+
+[[hook]]
+name = "SpawnProcess"
+kind = "anchor"
+strings = ["SpawnProcessInternal"]
+note = "spdlog literal referencing the internal helper name"
+
+# --- vtable-resolved virtuals -------------------------------------------------
+# These have zero direct callers: they are only ever invoked through the vtable,
+# so RTTI -> CompleteObjectLocator -> vtable -> slot is the only handle.
+
+[[hook]]
+name = "RecvPkt"
+kind = "vtable_slot"
+class_name = "CCMInterface"
+slot = 3
+note = "0 callers; slot 3 of the CCMInterface vtable"
+
+[[hook]]
+name = "ConfigStoreGetBinary"
+kind = "vtable_slot"
+class_name = "CConfigStore"
+slot = 7
+note = "0 callers; slot 7 of 26 in the CConfigStore vtable"
+
+[[hook]]
+name = "LoadDepotDecryptionKey"
+kind = "same_as"
+of = "ConfigStoreGetBinary"
+note = "the feed itself publishes both names against one RVA (same signature)"
+
+# --- call-graph resolved helpers ---------------------------------------------
+
+[[hook]]
+name = "GetOrAddAppData"
+kind = "callee"
+of = "GetAppDataFromAppInfo"
+span = 11
+note = "tiny 11-byte accessor behind the anchored app-info reader"
+
+[[hook]]
+name = "CUtlMemoryGrow"
+kind = "callee"
+of_anchor = ["CPICSJobRequestProductInfoUpdate::BParseResponseMessage"]
+span = 34
+note = "generic template grow helper (83 callers) reached from the anchored PICS parser"
+
+[[hook]]
+name = "LoadPackage"
+kind = "callee"
+of_anchor = ["CPICSJobRequestProductInfoUpdate::BParseResponseMessage"]
+span = 392
+note = "package loader; called from the same anchored parser"
+
+[[hook]]
+name = "MarkLicenseAsChanged"
+kind = "callee"
+of_anchor = ["CPICSJobRequestProductInfoUpdate::BParseResponseMessage"]
+span = 54
+note = "license bookkeeping called right after LoadPackage"
+
+# --- remaining steamclient hooks ---------------------------------------------
+
+[[hook]]
+name = "BBuildAndAsyncSendFrame"
+kind = "callee"
+of_anchor = ["Received large message over websocket, payload size %llu"]
+span = 15
+note = "15-byte frame assembler under the websocket receive path"
+
+[[hook]]
+name = "BuildDepotDependency"
+kind = "callee"
+of_anchor = ["branches/public/buildid"]
+span = 29
+note = "29-byte dependency builder used by the build-branch reader"
+
+[[hook]]
+name = "CUtlBufferEnsureCapacity"
+kind = "callee"
+of_anchor = ["MSG_HANGUP"]
+span = 275
+note = "275-byte CUtlBuffer helper reached from the chat/voice protocol path"
+
+[[hook]]
+name = "CheckAppOwnership"
+kind = "callee"
+of_anchor = ["CUserAppManager::BuildDepotDependency"]
+span = 23
+note = "23-byte ownership check used by the app manager"
+
+[[hook]]
+name = "GetPackageInfo"
+kind = "callee"
+of_anchor = ["CUser::CheckAppOwnership"]
+span = 232
+note = "232-byte package lookup called from CUser::CheckAppOwnership"
+
+[[hook]]
+name = "KeyValues_FindOrCreateKey"
+kind = "callee"
+of_anchor = ["Health Check: CHTTPClient not ready"]
+span = 15
+note = "15-byte KeyValues helper"
+
+[[hook]]
+name = "KeyValues_ReadAsBinary"
+kind = "callee"
+of = "LoadPackage"
+span = 19
+note = "19-byte binary KeyValues reader; LoadPackage is the anchored caller"
+
+[[hook]]
+name = "OptedInMask"
+kind = "vtable_slot"
+class_name = "CSteamController"
+slot = 112
+note = "0 callers; slot 112 of 213 in the CSteamController vtable"
+
+[[hook]]
+name = "PchMsgNameFromEMsg"
+kind = "callee"
+of_anchor = ["Missing ProtoBuf body %s in message: %s(%d)"]
+span = 159
+note = "159-byte EMsg name mapper used by the message router"
+
+[[hook]]
+name = "ProcessPendingLicenseUpdates"
+kind = "callee"
+of_anchor = ["User().RunFrame()"]
+span = 20
+note = "20-byte license pass called from the user frame step"
+
+[[hook]]
+name = "SendCallbackToPipe"
+kind = "callee"
+of_anchor = ["m_mapHServerPipes.Element(i) > 0"]
+span = 76
+note = "76-byte callback sender"
+
+[[hook]]
+name = "GetPipeClient"
+kind = "callee"
+of = "SendCallbackToPipe"
+leaf_only = true
+note = "leaf thunk (no .pdata); the only leaf callee of the callback sender"
+
+[[hook]]
+name = "GetAppIDForCurrentPipe"
+kind = "callee"
+of_anchor = ["m_mapCDNServerAddresses.HasElement( item.m_requestType )"]
+leaf_only = true
+min_callers = 100
+note = "leaf thunk, 286 callers, no literal/vtable/ptr-ref of its own. Anchor is the CDN request path, whose only leaf callee is this pipe->appid accessor; min_callers is a second, independent constraint (runner-up in the same position has 15)"
+

@@ -1,24 +1,117 @@
-import { FileSliders, Save, TimerReset } from "lucide-react";
+import { FileSliders, Link2, Save, TimerReset } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { AppController } from "../../app/useAppController";
 import type { ManagerSettings } from "../../types";
-import { Card, CardHeader, Field } from "../../shared/ui";
+import { Badge, Card, CardHead, Field, Toggle } from "../../shared/ui";
 
 export function SettingsPage({ controller }: { controller: AppController }) {
   const { state, actions } = controller;
   const [draft, setDraft] = useState<ManagerSettings>(state.settings);
   const [luaPaths, setLuaPaths] = useState(state.settings.lua_paths.join("\n"));
-  useEffect(() => { setDraft(state.settings); setLuaPaths(state.settings.lua_paths.join("\n")); }, [state.settings]);
+  useEffect(() => {
+    setDraft(state.settings);
+    setLuaPaths(state.settings.lua_paths.join("\n"));
+  }, [state.settings]);
+
+  const template = draft.remote_url_template.trim();
+  const missingPlaceholder = template !== "" && !["{channel}", "{component}", "{sha256}"].every((token) => template.includes(token));
+  const dirty = JSON.stringify({ ...draft, lua_paths: luaPaths.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) }) !== JSON.stringify(state.settings);
   const save = () => actions.saveSettings({ ...draft, lua_paths: luaPaths.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) });
-  return <div className="settings-layout">
-    <div className="settings-main">
-      <Card><CardHeader icon={FileSliders} title="基础设置" description="写入 Steam 根目录下的 opensteamtool.toml" /><div className="form-grid two settings-form"><Field label="日志等级"><select value={draft.log_level} onChange={(event) => setDraft({ ...draft, log_level: event.target.value })}><option value="trace">Trace</option><option value="debug">Debug</option><option value="info">Info</option><option value="warn">Warn</option><option value="error">Error</option></select></Field><Field label="Manifest 来源"><select value={draft.manifest_url} onChange={(event) => setDraft({ ...draft, manifest_url: event.target.value })}><option value="wudrm">wudrm</option><option value="steamrun">steamrun</option></select></Field><Field label="Pattern Mirror"><input value={draft.pattern_mirror} onChange={(event) => setDraft({ ...draft, pattern_mirror: event.target.value })} placeholder="留空使用默认源" /></Field><Field label="额外 Lua 路径" hint="每行填写一个绝对路径"><textarea rows={4} value={luaPaths} onChange={(event) => setLuaPaths(event.target.value)} placeholder={"D:\\SteamLua\nE:\\SharedLua"} /></Field></div></Card>
-      <Card><CardHeader icon={TimerReset} title="网络超时" description="单位为毫秒；网络不稳定时可以适当调高" /><div className="form-grid four settings-form">{timeoutFields.map(([key, label]) => <Field label={label} key={key}><input type="number" min={100} step={100} value={draft[key]} onChange={(event) => setDraft({ ...draft, [key]: Math.max(0, Number(event.target.value)) })} /></Field>)}</div></Card>
+
+  return (
+    <div className="stack">
+      <Card>
+        <CardHead
+          title="基础设置"
+          sub="写入 Steam 根目录下的 opensteamtool.toml"
+          accent
+          right={<Badge tone={dirty ? "warn" : "idle"}>{dirty ? "未保存" : "已同步"}</Badge>}
+        />
+        <div className="field-row">
+          <span className="f-label"><strong>日志等级</strong><small>DLL 写入 opensteamtool.log 的详细程度</small></span>
+          <select className="select" value={draft.log_level} onChange={(event) => setDraft({ ...draft, log_level: event.target.value })}>
+            <option value="trace">Trace</option>
+            <option value="debug">Debug</option>
+            <option value="info">Info</option>
+            <option value="warn">Warn</option>
+            <option value="error">Error</option>
+          </select>
+        </div>
+        <div className="field-row">
+          <span className="f-label"><strong>Manifest 来源</strong><small>自动发现 Manifest GID 时使用的数据源</small></span>
+          <select className="select" value={draft.manifest_url} onChange={(event) => setDraft({ ...draft, manifest_url: event.target.value })}>
+            <option value="wudrm">wudrm</option>
+            <option value="steamrun">steamrun</option>
+          </select>
+        </div>
+        <div className="field-row tall">
+          <span className="f-label"><strong>额外 Lua 路径</strong><small>每行一个绝对路径</small></span>
+          <textarea className="textarea mono" rows={3} value={luaPaths} onChange={(event) => setLuaPaths(event.target.value)} placeholder={"D:\\SteamLua\nE:\\SharedLua"} spellCheck={false} />
+        </div>
+      </Card>
+
+      <Card>
+        <CardHead title="数据源 [remote]" sub="DLL 真正读取的键；三个通道共用同一个模板" accent={template !== ""} />
+        <Field label="url_template" hint="必须包含 {channel}、{component}、{sha256}；留空则使用内置的 GitHub → jsDelivr 回退链">
+          <input
+            className="input mono"
+            value={draft.remote_url_template}
+            onChange={(event) => setDraft({ ...draft, remote_url_template: event.target.value })}
+            placeholder="https://raw.githubusercontent.com/<owner>/steam-monitor/{channel}/{component}/{sha256}.toml"
+            spellCheck={false}
+          />
+        </Field>
+        {missingPlaceholder && (
+          <p className="inline-warning">缺少占位符：模板必须同时包含 {"{channel}"}、{"{component}"}、{"{sha256}"}，否则 DLL 会直接禁用远程取数。</p>
+        )}
+        {draft.pattern_mirror && !template && (
+          <p className="note">检测到旧键 <code>[pattern] mirror</code>（DLL 不识别），保存后会迁移成上面的模板。</p>
+        )}
+        <div className="divider" />
+        <Toggle
+          checked={draft.suppress_missing_popup}
+          onChange={(next) => setDraft({ ...draft, suppress_missing_popup: next })}
+          label="缺条目时静默"
+          description="[ui] suppress_missing_popup：缺钩子只写日志、不弹窗（需要自建 DLL 才生效）"
+        />
+      </Card>
+
+      <Card>
+        <CardHead title="网络超时" sub="单位毫秒；网络不稳定时可适当调高" />
+        <div className="grid-4">
+          {timeoutFields.map(([key, label]) => (
+            <Field label={label} key={key}>
+              <input className="input mono" type="number" min={100} step={100} value={draft[key]} onChange={(event) => setDraft({ ...draft, [key]: Math.max(0, Number(event.target.value)) })} />
+            </Field>
+          ))}
+        </div>
+        <div className="btn-row spaced">
+          <button className="btn btn-primary" disabled={!state.steamDir || state.activity !== "idle" || missingPlaceholder} onClick={save}>
+            <Save size={12} />保存所有设置
+          </button>
+          <span className="note inline">改完需要重启 Steam 才完全生效。</span>
+        </div>
+      </Card>
+
+      <Card>
+        <CardHead title="TOML 快照" sub="磁盘上当前生效的值（来源：opensteamtool.toml）" />
+        <table className="table keys">
+          <thead><tr><th>键</th><th>值</th></tr></thead>
+          <tbody>
+            <tr><td><code>log_level</code></td><td><code>{state.build?.toml.log_level ?? "—"}</code></td></tr>
+            <tr><td><code>manifest_url</code></td><td><code>{state.build?.toml.manifest_url ?? "—"}</code></td></tr>
+            <tr><td><code>remote.url_template</code></td><td><code>{state.build?.toml.remote_url_template || "（空）"}</code></td></tr>
+            <tr><td><code>ui.suppress_missing_popup</code></td><td><code>{String(state.build?.toml.suppress_missing_popup ?? false)}</code></td></tr>
+          </tbody>
+        </table>
+      </Card>
     </div>
-    <aside className="settings-side"><Card className="save-card"><p>修改 TOML 设置后需要重启 Steam 才能完全生效。</p><button className="button primary full" disabled={!state.steamDir || state.activity !== "idle"} onClick={save}><Save size={17} />保存所有设置</button></Card></aside>
-  </div>;
+  );
 }
 
 const timeoutFields: Array<[keyof Pick<ManagerSettings, "timeout_resolve_ms" | "timeout_connect_ms" | "timeout_send_ms" | "timeout_recv_ms">, string]> = [
-  ["timeout_resolve_ms", "DNS 解析"], ["timeout_connect_ms", "建立连接"], ["timeout_send_ms", "发送请求"], ["timeout_recv_ms", "接收响应"],
+  ["timeout_resolve_ms", "DNS 解析"],
+  ["timeout_connect_ms", "建立连接"],
+  ["timeout_send_ms", "发送请求"],
+  ["timeout_recv_ms", "接收响应"],
 ];

@@ -7,7 +7,7 @@
 
 G-OpenSteamTool 是面向 Windows 的 OpenSteamTool 桌面管理器，用一个直观的工作区管理 Steam 目录、运行组件、游戏 Lua、Depot 信息、TOML 设置和运行日志。
 
-- 当前版本：`v0.3.1`
+- 当前版本：`v0.7.3`
 - 运行环境：Windows 10/11 x64
 - 技术栈：Tauri 2 / Rust / React / TypeScript
 - 更新方式：从 [GitHub Releases](https://github.com/G-Yoka/G-OpenSteamTool/releases) 手动下载
@@ -16,7 +16,8 @@ G-OpenSteamTool 是面向 Windows 的 OpenSteamTool 桌面管理器，用一个�
 
 ## 界面预览
 
-![G-OpenSteamTool 0.3.0 概览](screenshots/overview-v0.3.0.png)
+![G-OpenSteamTool 概览（深色）](screenshots/ui-v0.4-overview.png)
+![G-OpenSteamTool 组件页](screenshots/ui-v0.4-components.png)
 
 ## 功能
 
@@ -30,6 +31,11 @@ G-OpenSteamTool 是面向 Windows 的 OpenSteamTool 桌面管理器，用一个�
 - 本地自动获取会同时补充当前游戏 App ID，生成不带 Key 的 `addappid(<AppId>)` 条目。
 - 读取并筛选 `<Steam>/opensteamtool/*.log` 日志。
 - 在后台线程安全关闭或重启 Steam，避免界面阻塞和重复启动。
+- 数据通道页按当前 Steam 构建的 SHA-256 管理 `pattern` / `ipc` 三个通道文件，缺失时给出结论。
+- 诊断页汇总崩溃转储、缺失条目与被抑制异常，并把崩溃偏移归因到 `OpenSteamTool.dll` 或 Steam 侧。
+- 组件页区分「已加载」与「未加载 · 备用」，结论只以 `OpenSteamTool.dll` 是否被 Steam 加载为准。
+- 命令面板 `Ctrl K` 统一入口；`Ctrl 1…8`、`Ctrl R`、`Ctrl F`、`Ctrl ⇧ L`、`?` 覆盖常用操作。
+- 明暗主题两套配色，跟随系统或手动切换并记忆。
 - 纯手动发布更新，不包含应用内更新、GitHub 网络优化或 DNS 优化功能。
 
 ## 下载与安装
@@ -48,7 +54,8 @@ GitHub 自动生成的 `Source code (zip)` / `Source code (tar.gz)` 是源码，
 3. 点击“一键初始化”，安装托管 DLL 并创建默认 TOML。
 4. 打开“游戏配置”，输入 App ID 后点击“本地自动获取”。
 5. 核对自动发现的 Depot、Key 和 Manifest，保存为 `G-<AppId>.lua`。
-6. 重启 Steam，使 DLL、TOML 和 Lua 配置生效。
+6. 打开数据通道页，按当前构建补齐 pattern / ipc 通道文件（已有则确认状态即可）。
+7. 重启 Steam，使 DLL、TOML、通道数据和 Lua 配置生效。
 
 ## Depot 本地发现
 
@@ -105,6 +112,8 @@ G-OpenSteamTool/
 │   ├── README.en.md             English documentation
 │   ├── INSTALL.md               安装与升级说明
 │   ├── CHANGELOG.md             版本变更记录
+│   ├── DESIGN.md                界面设计与文案规范
+│   ├── PATTERN.md               数据通道（pattern / ipc）生成方法
 │   └── releases/                各版本发布说明
 ├── screenshots/
 ├── README.md
@@ -115,6 +124,9 @@ G-OpenSteamTool/
 
 - [安装、升级与卸载](docs/INSTALL.md)
 - [版本变更记录](docs/CHANGELOG.md)
+- [v0.7.3 发布说明](docs/releases/v0.7.3.md)
+- [界面设计与文案规范](docs/DESIGN.md)
+- [数据通道生成](docs/PATTERN.md)
 - [v0.3.1 发布说明](docs/releases/v0.3.1.md)
 - [v0.3.0 发布说明](docs/releases/v0.3.0.md)
 - [English README](docs/README.en.md)

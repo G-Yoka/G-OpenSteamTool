@@ -1,0 +1,81 @@
+# Rules for steamui.dll.
+#
+# Every rule must resolve to exactly one function; the engine refuses to guess.
+# Hooks without a rule here are listed as UNRESOLVED and no TOML is published
+# for them, which is exactly what should happen while a rule is missing.
+#
+# Rule kinds: anchor | callers | callee | vtable_slot | same_as
+# (see ost_patterns/resolve.py for the semantics of each)
+
+channel = "steamui"
+
+[[hook]]
+name = "AddProtobufAsBinary"
+kind = "anchor"
+strings = ["CJSMethodArgs::AddProtobufAsBinary"]
+note = "RPC helper; assert literal names the method verbatim"
+
+[[hook]]
+name = "BuildCompleteAppOverviewChange"
+kind = "anchor"
+strings = ["CSteamUIAppController::BuildCompleteAppOverviewChange - app"]
+note = "warning-spdlog prefix; anchored function feeds ShouldShowAppInLibrary"
+
+[[hook]]
+name = "CSteamUIAppControllerRunFrame"
+kind = "vtable_slot"
+class_name = "CSteamUIAppController"
+slot = 2
+note = "virtual: invoked only through the vtable, so RTTI is the only handle"
+
+[[hook]]
+name = "FillInAppOverview"
+kind = "anchor"
+strings = ["CSteamUIAppController::FillInAppOverview"]
+note = "assert literal names the method verbatim"
+
+# TODO(ShouldShowAppInLibrary): see below 鈥?now resolved via span; kept here as
+# documentation of why a plain `callee` rule was not enough (16 candidates).
+
+[[hook]]
+name = "RepeatedFieldUint32_Add"
+kind = "callee"
+of = "FillInAppOverview"
+span = 36
+note = "anonymous protobuf helper (no literal, no vtable): unique 36-byte callee of the anchored controller method"
+
+[[hook]]
+name = "ShouldShowAppInLibrary"
+kind = "callee"
+of = "BuildCompleteAppOverviewChange"
+span = 200
+note = "no literal of its own; `callee` alone gave 16 candidates, the exact span is the discriminator"
+
+# --- call-graph resolved (anchored PICS/UI paths) -----------------------------
+
+[[hook]]
+name = "GetAppByID"
+kind = "callee"
+of = "FillInAppOverview"
+span = 20
+note = "20-byte lookup helper; unique callee of that size under the anchored method"
+
+[[hook]]
+name = "MarkAppChange"
+kind = "callee"
+of_anchor = ["CInstallManager::OnAppUninstalled"]
+span = 11
+note = "11-byte change marker invoked from the uninstall path"
+
+[[hook]]
+name = "LoadModuleWithPath"
+kind = "callee"
+of_anchor = ["cuDeviceGetCount"]
+span = 16
+note = "16-byte loader used by the CUDA probe path"
+
+[[hook]]
+name = "GetTopManager"
+kind = "global_thunk"
+of_anchor = ["g_pSteamUIController == nullptr"]
+note = "8-byte `mov rax,[rip+G]; ret` getter: 0 callers, no literal, no pointer ref. G is the controller singleton, so the thunk is found through the code that asserts on that same global"

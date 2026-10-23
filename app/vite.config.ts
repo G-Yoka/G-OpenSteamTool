@@ -9,7 +9,8 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
     watch: {
-      ignored: ["**/src-tauri/**"],
+      // 只忽略构建产物与编辑器的原子写入临时目录，避免 watcher 被临时文件锁死
+      ignored: ["**/src-tauri/**", "**/*.tmpdir/**", "**/.*.tmp*"],
     },
   },
 });

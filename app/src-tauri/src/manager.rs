@@ -48,6 +48,16 @@ pub struct ManagerSettings {
     pub timeout_send_ms: u64,
     pub timeout_recv_ms: u64,
     pub lua_paths: Vec<String>,
+    /// `[remote] url_template` - the key OpenSteamTool actually reads. It must
+    /// contain `{channel}`, `{component}` and `{sha256}`.
+    #[serde(default)]
+    pub remote_url_template: String,
+    /// `[ui] suppress_missing_popup` - only honoured by our own DLL build.
+    #[serde(default)]
+    pub suppress_missing_popup: bool,
+    /// Legacy `[pattern] mirror` key. Read for migration only; the DLL ignores
+    /// it, so it is never written back.
+    #[serde(default)]
     pub pattern_mirror: String,
 }
 
@@ -61,6 +71,8 @@ impl Default for ManagerSettings {
             timeout_send_ms: 10000,
             timeout_recv_ms: 10000,
             lua_paths: Vec::new(),
+            remote_url_template: String::new(),
+            suppress_missing_popup: false,
             pattern_mirror: String::new(),
         }
     }
@@ -327,7 +339,27 @@ pub fn load_settings_from_dir<P: AsRef<Path>>(steam_dir: P) -> Result<ManagerSet
     }
     if let Some(pattern) = value.get("pattern").and_then(|v| v.as_table()) {
         if let Some(mirror) = pattern.get("mirror").and_then(|v| v.as_str()) {
+            // Legacy key; migrate it to a url template below when the real key
+            // is absent. The DLL never reads this section.
             settings.pattern_mirror = mirror.to_string();
+        }
+    }
+    if let Some(remote) = value.get("remote").and_then(|v| v.as_table()) {
+        if let Some(template) = remote.get("url_template").and_then(|v| v.as_str()) {
+            settings.remote_url_template = template.to_string();
+        }
+    }
+    if let Some(ui) = value.get("ui").and_then(|v| v.as_table()) {
+        if let Some(flag) = ui.get("suppress_missing_popup").and_then(|v| v.as_bool()) {
+            settings.suppress_missing_popup = flag;
+        }
+    }
+    if settings.remote_url_template.trim().is_empty() {
+        let legacy = settings.pattern_mirror.trim().trim_end_matches('/');
+        if !legacy.is_empty() {
+            // e.g. https://host/Org/repo/pattern -> https://host/Org/repo/pattern/{channel}/...
+            settings.remote_url_template =
+                format!("{legacy}/{{channel}}/{{component}}/{{sha256}}.toml");
         }
     }
 
@@ -356,12 +388,25 @@ pub fn save_settings_to_dir<P: AsRef<Path>>(
         settings.timeout_recv_ms,
         lua_paths
     );
-    if !settings.pattern_mirror.trim().is_empty() {
+    let template = settings.remote_url_template.trim();
+    if !template.is_empty() {
+        for placeholder in ["{channel}", "{component}", "{sha256}"] {
+            if !template.contains(placeholder) {
+                return Err(format!(
+                    "remote url_template 缺少占位符 {placeholder}（必须同时包含 \
+                     {{channel}}、{{component}}、{{sha256}}）"
+                ));
+            }
+        }
         text.push_str(&format!(
-            "\n[pattern]\nmirror = \"{}\"\n",
-            escape_toml(settings.pattern_mirror.trim())
+            "\n[remote]\nurl_template = \"{}\"\n",
+            escape_toml(template)
         ));
     }
+    text.push_str(&format!(
+        "\n[ui]\nsuppress_missing_popup = {}\n",
+        settings.suppress_missing_popup
+    ));
     safe_replace_file(&steam_dir.join("opensteamtool.toml"), text.as_bytes())
 }
 

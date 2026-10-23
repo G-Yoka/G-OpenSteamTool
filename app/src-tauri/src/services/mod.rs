@@ -4,6 +4,7 @@
 //! Windows implementation details directly. The legacy `manager` module remains
 //! the infrastructure implementation while it is split incrementally.
 
+pub mod channels;
 pub mod dlls;
 pub mod games;
 pub mod logs;

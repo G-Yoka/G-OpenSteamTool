@@ -64,7 +64,9 @@ fn settings_round_trip_opensteamtool_toml() {
         timeout_send_ms: 3000,
         timeout_recv_ms: 4000,
         lua_paths: vec!["D:/lua-extra".into()],
-        pattern_mirror: "https://cdn.example/pattern".into(),
+        remote_url_template: "https://cdn.example/{channel}/{component}/{sha256}.toml".into(),
+        suppress_missing_popup: true,
+        pattern_mirror: String::new(),
     };
 
     save_settings_to_dir(steam.path(), &settings).unwrap();
@@ -74,7 +76,40 @@ fn settings_round_trip_opensteamtool_toml() {
     let raw = fs::read_to_string(steam.path().join("opensteamtool.toml")).unwrap();
     assert!(raw.contains("[manifest]"));
     assert!(raw.contains("url = \"steamrun\""));
+    assert!(raw.contains("[remote]"));
+    assert!(raw
+        .contains("url_template = \"https://cdn.example/{channel}/{component}/{sha256}.toml\""));
+    assert!(raw.contains("[ui]"));
+    assert!(raw.contains("suppress_missing_popup = true"));
+    // 旧键只读不写：[pattern] 不得再回写
+    assert!(!raw.contains("[pattern]"));
 }
+
+#[test]
+fn legacy_pattern_mirror_migrates_to_remote_url_template() {
+    let steam = make_steam_dir();
+    fs::write(
+        steam.path().join("opensteamtool.toml"),
+        "[pattern]\nmirror = \"https://cdn.example/Org/repo/pattern\"\n",
+    )
+    .unwrap();
+
+    let loaded = load_settings_from_dir(steam.path()).unwrap();
+    assert_eq!(
+        loaded.remote_url_template,
+        "https://cdn.example/Org/repo/pattern/{channel}/{component}/{sha256}.toml"
+    );
+}
+
+#[test]
+fn save_settings_rejects_template_without_placeholders() {
+    let steam = make_steam_dir();
+    let mut settings = ManagerSettings::default();
+    settings.remote_url_template = "https://cdn.example/pattern".into();
+
+    assert!(save_settings_to_dir(steam.path(), &settings).is_err());
+}
+
 
 #[test]
 fn render_game_lua_uses_g_prefixed_file_contract() {

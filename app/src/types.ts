@@ -33,7 +33,63 @@ export type ManagerSettings = {
   timeout_send_ms: number;
   timeout_recv_ms: number;
   lua_paths: string[];
+  /** `[remote] url_template` — must contain {channel}, {component}, {sha256}. */
+  remote_url_template: string;
+  /** `[ui] suppress_missing_popup` — only honoured by our own DLL build. */
+  suppress_missing_popup: boolean;
+  /** Legacy `[pattern] mirror`, read-only migration source. */
   pattern_mirror: string;
+};
+
+export type ChannelFile = {
+  channel: string;
+  component: string;
+  path: string;
+  present: boolean;
+  bytes: number;
+  entries: number;
+  entry_label: string;
+  expected_name: string;
+};
+
+export type DllProvenance = {
+  present: boolean;
+  path: string;
+  sha256: string;
+  size: number;
+  layout_signature: string | null;
+  has_suppress_support: boolean;
+  has_ipc_channel: boolean;
+};
+
+export type TomlSnapshot = {
+  log_level: string;
+  manifest_url: string;
+  remote_url_template: string;
+  suppress_missing_popup: boolean;
+  legacy_pattern_mirror: string;
+};
+
+export type CrashDump = {
+  name: string;
+  path: string;
+  size: number;
+  modified_unix: number;
+  exception_code: number | null;
+  faulting_module: string | null;
+  faulting_offset: number | null;
+  fault_address: number | null;
+  verdict: string;
+};
+
+export type BuildInspection = {
+  steamui_sha256: string | null;
+  steamclient_sha256: string | null;
+  steam_version: string | null;
+  dll: DllProvenance;
+  channels: ChannelFile[];
+  toml: TomlSnapshot;
+  crash_dumps: CrashDump[];
 };
 
 export type GameConfig = {

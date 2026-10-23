@@ -7,3 +7,8 @@ outputs/
 *.log
 *.tmp
 *.bak
+/g-opensteamtool-v*.exe
+/backup/
+tools/**/__pycache__/
+tools/**/.pytest_cache/
+tools/pattern-tracker/out*/

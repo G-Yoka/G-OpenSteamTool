@@ -1,6 +1,9 @@
-import type { GameConfig, LogFile, ManagerSettings, ScanState } from "../types";
+import type { BuildInspection, GameConfig, LogFile, ManagerSettings, ScanState } from "../types";
 
-export type PageId = "overview" | "games" | "dlls" | "settings" | "logs" | "about";
+export type PageId = "overview" | "channels" | "dlls" | "games" | "logs" | "diagnostics" | "settings" | "about";
+
+/** 界面显示的版本号单一来源（与 package.json 的发布号保持同步）。 */
+export const APP_VERSION = "0.7.3";
 export type ActivityState = "idle" | "loading" | "working";
 export type NoticeTone = "neutral" | "working" | "success" | "error";
 
@@ -10,6 +13,7 @@ export type AppViewState = {
   page: PageId;
   steamDir: string;
   scan: ScanState | null;
+  build: BuildInspection | null;
   settings: ManagerSettings;
   games: GameConfig[];
   logs: LogFile[];
@@ -27,6 +31,8 @@ export const defaultSettings: ManagerSettings = {
   timeout_send_ms: 10000,
   timeout_recv_ms: 10000,
   lua_paths: [],
+  remote_url_template: "",
+  suppress_missing_popup: false,
   pattern_mirror: "",
 };
 

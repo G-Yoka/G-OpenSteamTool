@@ -121,6 +121,35 @@ async fn restart_steam(steam_dir: String) -> CommandResult<()> {
 }
 
 #[tauri::command]
+fn inspect_build(steam_dir: String) -> CommandResult<services::channels::BuildInspection> {
+    services::channels::inspect(steam_dir)
+}
+
+#[tauri::command]
+fn install_channel_file(
+    steam_dir: String,
+    channel: String,
+    component: String,
+    source: String,
+) -> CommandResult<services::channels::ChannelFile> {
+    services::channels::install_file(steam_dir, channel, component, source)
+}
+
+#[tauri::command]
+fn remove_channel_file(
+    steam_dir: String,
+    channel: String,
+    component: String,
+) -> CommandResult<services::channels::ChannelFile> {
+    services::channels::remove_file(steam_dir, channel, component)
+}
+
+#[tauri::command]
+fn list_crash_dumps(steam_dir: String) -> CommandResult<Vec<services::channels::CrashDump>> {
+    services::channels::dumps(steam_dir)
+}
+
+#[tauri::command]
 fn minimize_window(window: tauri::Window) -> CommandResult<()> {
     window.minimize().map_err(|err| err.to_string())
 }
@@ -135,8 +164,17 @@ fn start_window_drag(window: tauri::Window) -> CommandResult<()> {
     window.start_dragging().map_err(|err| err.to_string())
 }
 
-pub fn run() {
-    tauri::Builder::default()
+#[tauri::command]
+fn toggle_maximize(window: tauri::Window) -> CommandResult<()> {
+    let maximized = window.is_maximized().map_err(|err| err.to_string())?;
+    if maximized {
+        window.unmaximize().map_err(|err| err.to_string())
+    } else {
+        window.maximize().map_err(|err| err.to_string())
+    }
+}
+
+pub fn run() {    tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
@@ -160,11 +198,16 @@ pub fn run() {
             fetch_app_metadata,
             discover_depots,
             read_logs,
+            inspect_build,
+            install_channel_file,
+            remove_channel_file,
+            list_crash_dumps,
             close_steam,
             restart_steam,
             minimize_window,
             close_window,
-            start_window_drag
+            start_window_drag,
+            toggle_maximize
         ])
         .run(tauri::generate_context!())
         .expect("error while running G-OpenSteamTool");

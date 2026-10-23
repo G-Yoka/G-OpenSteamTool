@@ -1,0 +1,59 @@
+name: Pattern tracker
+
+# Unit tests always run. Resolution needs real Steam binaries, so it is a
+# manual/self-hosted job until tools/fetch_client.py exists (see README).
+on:
+  push:
+    paths:
+      - "ost_patterns/**"
+      - "rules/**"
+      - "tests/**"
+      - ".github/workflows/pattern.yml"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pytest
+        run: python -m pip install --quiet pytest
+      - name: Unit tests
+        run: python -m pytest tests -q
+
+  resolve-local:
+    # Requires a Windows runner that has Steam installed, e.g. a self-hosted
+    # agent. The ground-truth TOML is expected at fixtures/local/<sha256>.toml
+    # and is intentionally not in the repo.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: self-hosted
+    defaults:
+      run:
+        working-directory: tools/pattern-tracker
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify steamui against ground truth (if present)
+        shell: pwsh
+        run: |
+          $dll = "D:\1_launchers\steam\steamui.dll"
+          if (-not (Test-Path $dll)) { Write-Host "no local Steam, skipping"; exit 0 }
+          $sha = (Get-FileHash $dll -Algorithm SHA256).Hash.ToLower()
+          $truth = "fixtures/local/$sha.toml"
+          if (Test-Path $truth) {
+            python -m ost_patterns.cli verify $dll $truth --rules rules/steamui.toml
+          } else {
+            Write-Host "no ground truth for $sha, resolving only"
+          }
+          python -m ost_patterns.cli resolve $dll --rules rules/steamui.toml --out-dir artifacts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pattern-tomls
+          path: tools/pattern-tracker/artifacts/**/*.toml
+          if-no-files-found: warn

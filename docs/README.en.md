@@ -4,12 +4,12 @@
 
 G-OpenSteamTool is a Windows desktop manager for Steam-local OpenSteamTool components, per-game Lua files, TOML settings, Depot metadata, and logs.
 
-- Current version: `v0.3.1`
+- Current version: `v0.7.3`
 - Platform: Windows 10/11 x64
 - Stack: Tauri 2 / Rust / React / TypeScript
 - Updates: manual downloads from [GitHub Releases](https://github.com/G-Yoka/G-OpenSteamTool/releases)
 
-![G-OpenSteamTool 0.3.0 overview](../screenshots/overview-v0.3.0.png)
+![G-OpenSteamTool overview](../screenshots/ui-v0.4-overview.png)
 
 ## Highlights
 
@@ -20,6 +20,11 @@ G-OpenSteamTool is a Windows desktop manager for Steam-local OpenSteamTool compo
 - Merges Depot keys already present in the local Steam `config.vdf`.
 - Imports existing Lua configurations and preserves multiple Depot/Manifest entries.
 - Reads local OpenSteamTool logs and restarts Steam without blocking the UI.
+- Manages the three data channels (`pattern/steamui`, `pattern/steamclient`, `ipc/steamclient`) keyed by the current Steam build SHA-256.
+- Diagnostics page summarizes crash dumps, missing entries, and suppressed exceptions, attributing offsets to `OpenSteamTool.dll` or the Steam side.
+- Component page separates loaded from not loaded · standby; the verdict only depends on whether `OpenSteamTool.dll` is loaded by Steam.
+- Command palette (`Ctrl K`) plus `Ctrl 1-8`, `Ctrl R`, `Ctrl F`, `Ctrl Shift L`, and `?` shortcuts.
+- Dark and light themes that follow the system preference or can be pinned manually.
 - Contains no in-app updater, GitHub network optimization, or custom DNS/DoT feature.
 
 The application cannot create or retrieve Depot keys that are not already available in the current local Steam configuration.
