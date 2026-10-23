@@ -11,6 +11,15 @@ export function GamesPage({ controller }: { controller: AppController }) {
   const [form, setForm] = useState<GameConfig>(state.selectedGame);
   const [advanced, setAdvanced] = useState(false);
   useEffect(() => { setForm(state.selectedGame); }, [state.selectedGame]);
+  // Keep the editor in sync with the on-disk state: toggling a config renames
+  // the file, and a stale `form.enabled` would write the opposite copy back.
+  useEffect(() => {
+    if (!form.appid) return;
+    const current = state.games.find((game) => game.appid === form.appid);
+    if (current && current.enabled !== form.enabled) {
+      setForm((prev) => ({ ...prev, enabled: current.enabled }));
+    }
+  }, [state.games, form.appid, form.enabled]);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();

@@ -460,8 +460,16 @@ pub fn upsert_game_in_dir<P: AsRef<Path>>(steam_dir: P, game: &GameConfig) -> Re
     let lua_dir = lua_dir(&steam_dir);
     fs::create_dir_all(&lua_dir).map_err(|err| err.to_string())?;
     let path = lua_dir.join(game_file_name(game.appid, game.enabled));
+    let counterpart = lua_dir.join(game_file_name(game.appid, !game.enabled));
     let content = render_game_lua(game)?;
-    safe_replace_file(&path, content.as_bytes())
+    safe_replace_file(&path, content.as_bytes())?;
+    // One appid must own exactly one file. Writing the enabled copy while a
+    // stale `.lua.disabled` (or the reverse) survives leaves both on disk, which
+    // the loader cannot disambiguate.
+    if counterpart.exists() {
+        fs::remove_file(&counterpart).map_err(|err| err.to_string())?;
+    }
+    Ok(())
 }
 
 pub fn import_lua_file_from_path<P: AsRef<Path>, Q: AsRef<Path>>(
@@ -522,7 +530,6 @@ pub fn delete_game_from_dir<P: AsRef<Path>>(steam_dir: P, appid: u32) -> Result<
         let path = lua_dir.join(game_file_name(appid, enabled));
         if path.exists() {
             fs::remove_file(path).map_err(|err| err.to_string())?;
-            return Ok(());
         }
     }
     Ok(())
@@ -537,11 +544,18 @@ pub fn set_game_enabled_in_dir<P: AsRef<Path>>(
     let lua_dir = lua_dir(&steam_dir);
     let source = lua_dir.join(game_file_name(appid, !enabled));
     let target = lua_dir.join(game_file_name(appid, enabled));
-    if target.exists() {
-        return Err(format!("目标 Lua 文件已存在：{}", target.display()));
-    }
     if !source.exists() {
+        if target.exists() {
+            // Already in the requested state; nothing to rename.
+            return Ok(());
+        }
         return Err(format!("源 Lua 文件不存在：{}", source.display()));
+    }
+    if target.exists() {
+        // Both states on disk (left behind by an older build). Keep the one the
+        // user asked for and drop the duplicate instead of failing forever.
+        fs::remove_file(&source).map_err(|err| err.to_string())?;
+        return Ok(());
     }
     fs::rename(source, target).map_err(|err| err.to_string())
 }

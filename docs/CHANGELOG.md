@@ -1,5 +1,12 @@
 # 版本变更记录
 
+## v0.9.1
+
+- 修复禁用配置后 `G-<AppId>.lua` 与 `G-<AppId>.lua.disabled` 并存：写入时删除对侧文件，一个 AppId 只保留一份。
+- `set_game_enabled` 在目标已存在时改为自愈，不再报错。
+- 删除会清掉两种状态的 Lua。
+- 游戏编辑器跟随磁盘状态刷新 `enabled`，避免保存把禁用配置写回启用。
+
 ## v0.9.0
 
 - 新增应用内 ipc 通道生成：从 `steamclient64.dll` 的 wrapper 提取 `funcHash` / `fencepost`，接口号与 `argc` 取自上游 IDL。

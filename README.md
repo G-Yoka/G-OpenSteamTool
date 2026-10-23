@@ -7,7 +7,7 @@
 
 G-OpenSteamTool 是面向 Windows 的 OpenSteamTool 桌面管理器，用一个直观的工作区管理 Steam 目录、运行组件、游戏 Lua、Depot 信息、TOML 设置和运行日志。
 
-- 当前版本：`v0.9.0`
+- 当前版本：`v0.9.1`
 - 运行环境：Windows 10/11 x64
 - 技术栈：Tauri 2 / Rust / React / TypeScript
 - 更新方式：从 [GitHub Releases](https://github.com/G-Yoka/G-OpenSteamTool/releases) 手动下载
@@ -125,6 +125,7 @@ G-OpenSteamTool/
 
 - [安装、升级与卸载](docs/INSTALL.md)
 - [版本变更记录](docs/CHANGELOG.md)
+- [v0.9.1 发布说明](docs/releases/v0.9.1.md)
 - [v0.9.0 发布说明](docs/releases/v0.9.0.md)
 - [v0.8.0 发布说明](docs/releases/v0.8.0.md)
 - [v0.7.3 发布说明](docs/releases/v0.7.3.md)

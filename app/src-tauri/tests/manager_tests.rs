@@ -228,13 +228,16 @@ fn set_game_enabled_renames_without_overwriting() {
     assert!(lua_dir.join("G-1962700.lua").exists());
     assert!(!lua_dir.join("G-1962700.lua.disabled").exists());
 
+    // Both states on disk (older builds could leave this behind). Enabling must
+    // converge to a single file instead of failing forever.
     fs::write(
         lua_dir.join("G-1962700.lua.disabled"),
         "addappid(1962700)\n",
     )
     .unwrap();
-    let error = set_game_enabled_in_dir(steam.path(), 1962700, true).unwrap_err();
-    assert!(error.contains("目标 Lua 文件已存在"));
+    set_game_enabled_in_dir(steam.path(), 1962700, true).unwrap();
+    assert!(lua_dir.join("G-1962700.lua").exists());
+    assert!(!lua_dir.join("G-1962700.lua.disabled").exists());
 }
 
 #[test]
@@ -688,4 +691,77 @@ fn sample_game() -> GameConfig {
 
 fn is_sha256_hex(value: &str) -> bool {
     value.len() == 64 && value.chars().all(|ch| ch.is_ascii_hexdigit())
+}
+
+fn lua_dir_of(steam: &tempfile::TempDir) -> std::path::PathBuf {
+    let dir = steam.path().join("config").join("lua");
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+#[test]
+fn upsert_removes_the_stale_counterpart_file() {
+    let steam = make_steam_dir();
+    let lua = lua_dir_of(&steam);
+    std::fs::write(lua.join("G-753640.lua.disabled"), b"-- stale").unwrap();
+
+    upsert_game_in_dir(steam.path(), &sample_game()).unwrap();
+
+    assert!(lua.join("G-753640.lua").is_file(), "enabled copy must exist");
+    assert!(
+        !lua.join("G-753640.lua.disabled").exists(),
+        "one appid must own exactly one file"
+    );
+    let games = list_games_from_dir(steam.path()).unwrap();
+    assert_eq!(games.len(), 1, "duplicate pair must not show up twice");
+}
+
+#[test]
+fn disabling_removes_the_enabled_counterpart_file() {
+    let steam = make_steam_dir();
+    let lua = lua_dir_of(&steam);
+    std::fs::write(lua.join("G-753640.lua"), b"-- stale").unwrap();
+    let mut game = sample_game();
+    game.enabled = false;
+
+    upsert_game_in_dir(steam.path(), &game).unwrap();
+
+    assert!(lua.join("G-753640.lua.disabled").is_file());
+    assert!(!lua.join("G-753640.lua").exists());
+}
+
+#[test]
+fn set_enabled_heals_a_duplicate_pair() {
+    let steam = make_steam_dir();
+    let lua = lua_dir_of(&steam);
+    std::fs::write(lua.join("G-753640.lua"), b"-- enabled").unwrap();
+    std::fs::write(lua.join("G-753640.lua.disabled"), b"-- disabled").unwrap();
+
+    set_game_enabled_in_dir(steam.path(), 753640, true).unwrap();
+
+    assert!(lua.join("G-753640.lua").is_file());
+    assert!(!lua.join("G-753640.lua.disabled").exists(), "duplicate must be dropped");
+}
+
+#[test]
+fn set_enabled_is_idempotent_when_already_in_state() {
+    let steam = make_steam_dir();
+    let lua = lua_dir_of(&steam);
+    std::fs::write(lua.join("G-753640.lua"), b"-- enabled").unwrap();
+
+    set_game_enabled_in_dir(steam.path(), 753640, true).unwrap();
+    assert!(lua.join("G-753640.lua").is_file());
+}
+
+#[test]
+fn delete_removes_both_states() {
+    let steam = make_steam_dir();
+    let lua = lua_dir_of(&steam);
+    std::fs::write(lua.join("G-753640.lua"), b"-- enabled").unwrap();
+    std::fs::write(lua.join("G-753640.lua.disabled"), b"-- disabled").unwrap();
+
+    delete_game_from_dir(steam.path(), 753640).unwrap();
+
+    assert!(!lua.join("G-753640.lua").exists());
+    assert!(!lua.join("G-753640.lua.disabled").exists());
 }
