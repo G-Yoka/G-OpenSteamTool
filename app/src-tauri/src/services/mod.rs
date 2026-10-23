@@ -8,5 +8,6 @@ pub mod channels;
 pub mod dlls;
 pub mod games;
 pub mod logs;
+pub mod patterns;
 pub mod settings;
 pub mod steam;

@@ -10,6 +10,7 @@
 //! This module reports that state and installs/removes the two data files. It is
 //! deliberately read-mostly: nothing here patches Steam or starts a process.
 
+use super::patterns;
 use crate::manager::{self, Result};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -443,6 +444,43 @@ pub fn install_file(
     Ok(inspect_channel(&dir, &channel, &component))
 }
 
+/// Generate the `pattern` channel file for the current Steam build, in-process.
+///
+/// `ipc` is deliberately excluded: its wire constants need the upstream
+/// `IPCMessages.steamd`, which is not shipped with this app.
+pub fn generate_channel(
+    steam_dir: String,
+    channel: String,
+    component: String,
+) -> Result<ChannelFile> {
+    let dir = manager::validate_steam_dir(&steam_dir)?;
+    if channel != "pattern" {
+        return Err(
+            "ipc 通道需要上游 IPCMessages.steamd，应用内目前只能生成 pattern".to_string(),
+        );
+    }
+    let dll_name = patterns::dll_file_for(&component)
+        .ok_or_else(|| format!("未知组件: {component}"))?;
+    let dll = dir.join(dll_name);
+    if !dll.is_file() {
+        return Err(format!("找不到 {dll_name}，请先确认 Steam 目录"));
+    }
+    let generated = patterns::generate(&dll, &component)?;
+    let target_dir = dir.join("opensteamtool").join(&channel).join(&component);
+    std::fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
+    let target = target_dir.join(format!("{}.toml", generated.sha256));
+    write_atomic(&target, generated.text.as_bytes())?;
+    Ok(inspect_channel(&dir, &channel, &component))
+}
+
+fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    let tmp = path.with_extension("toml.tmp");
+    std::fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
+    if path.exists() {
+        std::fs::remove_file(path).map_err(|e| e.to_string())?;
+    }
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+}
 pub fn remove_file(steam_dir: String, channel: String, component: String) -> Result<ChannelFile> {
     let dir = manager::validate_steam_dir(&steam_dir)?;
     let target_dir = channel_dir(&dir, &channel, &component)?;

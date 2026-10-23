@@ -1,5 +1,13 @@
 # 版本变更记录
 
+## v0.8.0
+
+- 新增应用内 pattern 通道生成：数据通道页「生成」按钮直接读当前 Steam 构建的 `steamui.dll` / `steamclient64.dll`，无需 Python 与仓库。
+- `tools/pattern-tracker` 的 PE 读取、签名合成、规则引擎、RTTI 与 TOML 读写移植为 Rust，规则集编译期内嵌。
+- 生成结果与 Python 流水线逐字节一致；写入采用临时文件 + 替换。
+- 生成在后台线程执行，界面不阻塞。
+- 通道页侧栏缺文件时提供「生成缺失通道」。
+- ipc 通道仍需上游 `IPCMessages.steamd`，应用内会明确提示。
 ## v0.7.3
 
 - 新增数据通道页：按当前 Steam 构建的 SHA-256 管理 `pattern` / `ipc` 三个通道文件。

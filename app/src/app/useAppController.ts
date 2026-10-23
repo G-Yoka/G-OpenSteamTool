@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   closeSteam, deleteGame, detectSteamDir, discoverDepots, importLuaFile, inspectBuild,
-  installChannelFile, installDlls, listGames, loadSettings, openLuaDir, pickSteamDir,
+  generateChannelFile, installChannelFile, installDlls, listGames, loadSettings, openLuaDir, pickSteamDir,
   pickTomlFile, readLogs, removeChannelFile, removeDlls, restartSteam,
   saveSettings, scanState, setGameEnabled, upsertGame,
 } from "../api";
@@ -185,7 +185,12 @@ export function useAppController() {
         ["all"],
       ).catch(() => undefined);
     },
-    removeChannel: (channel: string, component: string) => run(
+    generateChannel: (channel: string, component: string) => run(
+      async () => { await generateChannelFile(steamDir, channel, component); },
+      "正在按当前 Steam 构建生成通道数据…",
+      `${channel}/${component} 已生成，重启 Steam 生效`,
+      ["all"],
+    ).catch(() => undefined),    removeChannel: (channel: string, component: string) => run(
       async () => { await removeChannelFile(steamDir, channel, component); },
       "正在移除通道数据…",
       `${channel}/${component} 已移除`,

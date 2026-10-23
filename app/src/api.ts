@@ -142,6 +142,12 @@ export async function installChannelFile(
   return invoke<ChannelFile>("install_channel_file", { steamDir, channel, component, source });
 }
 
+export async function generateChannelFile(
+  steamDir: string, channel: string, component: string,
+): Promise<ChannelFile> {
+  if (!hasTauri()) throw new Error("预览模式无法生成通道文件");
+  return invoke<ChannelFile>("generate_channel_file", { steamDir, channel, component });
+}
 export async function removeChannelFile(
   steamDir: string, channel: string, component: string,
 ): Promise<ChannelFile> {

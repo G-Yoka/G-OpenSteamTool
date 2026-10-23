@@ -1,4 +1,4 @@
-import { Box, FolderInput, FolderOpen, Layers, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
+import { Box, FolderInput, FolderOpen, Layers, RefreshCw, ShieldAlert, Sparkles, Trash2 } from "lucide-react";
 import type { AppController } from "../../app/useAppController";
 import { RecentLogCard, SideAction } from "../../shared/panels";
 import { Badge, Card, CardHead, Empty, Hash, KV, KVRow, Verdict } from "../../shared/ui";
@@ -21,6 +21,7 @@ export function ChannelsPage({ controller }: { controller: AppController }) {
   const busy = state.activity !== "idle";
   const installed = build.channels.filter((file) => file.present).length;
   const missing = build.channels.filter((file) => !file.present);
+  const missingPattern = missing.find((file) => file.channel === "pattern");
 
   return (
     <div className="page-split">
@@ -96,6 +97,14 @@ export function ChannelsPage({ controller }: { controller: AppController }) {
                     <td><code>{file.expected_name ? `${file.expected_name.slice(0, 12)}…toml` : "（缺少 DLL）"}</code></td>
                     <td className="actions">
                       <div className="btn-row end">
+                        <button
+                          className="btn btn-sm"
+                          disabled={busy || file.channel !== "pattern"}
+                          title={file.channel === "pattern" ? "按当前 Steam 构建在应用内生成" : "ipc 通道需要上游 IPCMessages.steamd"}
+                          onClick={() => void actions.generateChannel(file.channel, file.component)}
+                        >
+                          <Sparkles size={11} />生成
+                        </button>
                         <button className="btn btn-sm" disabled={busy} onClick={() => void actions.installChannel(file.channel, file.component)}>
                           <FolderInput size={11} />{file.present ? "替换" : "安装"}
                         </button>
@@ -126,10 +135,10 @@ export function ChannelsPage({ controller }: { controller: AppController }) {
             )}
             {missing.length > 0 && (
               <SideAction
-                icon={<FolderInput size={12} />}
-                title="补齐通道文件"
-                sub={`${missing.length} 个待补齐`}
-                onClick={() => void actions.installChannel(missing[0].channel, missing[0].component)}
+                icon={<Sparkles size={12} />}
+                title={missingPattern ? "生成缺失通道" : "安装通道文件"}
+                sub={missingPattern ? `${missing.length} 个待补齐` : "从本地选择 TOML"}
+                onClick={() => missingPattern ? void actions.generateChannel(missingPattern.channel, missingPattern.component) : void actions.installChannel("pattern", "steamui")}
               />
             )}
             {dllReady && (
