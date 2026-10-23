@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   closeSteam, deleteGame, detectSteamDir, discoverDepots, importLuaFile, inspectBuild,
-  generateAllChannels, generateChannelFile, installChannelFile, installDlls, pickIdlFile, listGames, loadSettings, openLuaDir, pickSteamDir,
+  generateAllChannels, generateChannelFile, installChannelFile, installDlls, listGames, loadSettings, openLuaDir, pickSteamDir,
   pickTomlFile, readLogs, removeChannelFile, removeDlls, restartSteam,
   saveSettings, scanState, setGameEnabled, upsertGame,
 } from "../api";
@@ -222,16 +222,8 @@ export function useAppController() {
       ).catch(() => undefined);
     },
     generateChannel: async (channel: string, component: string) => {
-      let idl: string | null = null;
-      if (channel === "ipc") {
-        idl = localStorage.getItem("gost.idl");
-        if (!idl) {
-          const picked = await pickIdlFile();
-          if (!picked) { notify("neutral", "ipc 通道需要 IPCMessages.steamd，已取消"); return; }
-          localStorage.setItem("gost.idl", picked);
-          idl = picked;
-        }
-      }
+      // ipc 默认用内置的上游 IDL；只有用户在设置里指定过才走覆盖文件。
+      const idl = channel === "ipc" ? localStorage.getItem("gost.idl") : null;
       await run(
         async () => { await generateChannelFile(steamDir, channel, component, idl); },
         channel === "ipc" ? "正在从 IDL 与 DLL 提取 ipc 常量…" : "正在按当前 Steam 构建生成通道数据…",

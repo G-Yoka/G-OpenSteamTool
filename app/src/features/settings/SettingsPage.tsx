@@ -87,18 +87,26 @@ export function SettingsPage({ controller }: { controller: AppController }) {
       <Card>
         <CardHead
           title="IPC 定义文件"
-          sub="生成 ipc 通道时读取接口、方法与 arity；路径只记录在本机"
-          accent={Boolean(idlPath)}
+          sub="默认使用内置的上游定义；需要时可指定更新的文件"
+          accent
         />
         <Field
           label="IPCMessages.steamd"
-          hint="来自 OpenSteamTool 上游源码 src/Steam/IPCMessages.steamd；不会写入 opensteamtool.toml"
+          hint="内置版本随应用分发（OpenSteamTool 上游 GPL-3.0 源码）；覆盖路径只记录在本机，不写入 opensteamtool.toml"
         >
           <div className="btn-row">
-            <input className="input mono" value={idlPath} readOnly placeholder="尚未选择" />
+            <input className="input mono" value={idlPath} readOnly placeholder="内置（随应用分发）" />
             <button className="btn btn-sm" onClick={() => void pickIdl()}>
               <FolderOpen size={11} />选择…
             </button>
+            {idlPath && (
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => { localStorage.removeItem("gost.idl"); setIdlPath(""); }}
+              >
+                恢复内置
+              </button>
+            )}
           </div>
         </Field>
       </Card>

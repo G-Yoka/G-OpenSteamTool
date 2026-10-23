@@ -7,7 +7,7 @@
 
 G-OpenSteamTool 是面向 Windows 的 OpenSteamTool 桌面管理器，用一个直观的工作区管理 Steam 目录、运行组件、游戏 Lua、Depot 信息、TOML 设置和运行日志。
 
-- 当前版本：`v0.10.0`
+- 当前版本：`v0.11.0`
 - 运行环境：Windows 10/11 x64
 - 技术栈：Tauri 2 / Rust / React / TypeScript
 - 更新方式：从 [GitHub Releases](https://github.com/G-Yoka/G-OpenSteamTool/releases) 手动下载
@@ -32,7 +32,7 @@ G-OpenSteamTool 是面向 Windows 的 OpenSteamTool 桌面管理器，用一个�
 - 读取并筛选 `<Steam>/opensteamtool/*.log` 日志。
 - 在后台线程安全关闭或重启 Steam，避免界面阻塞和重复启动。
 - 数据通道页按当前 Steam 构建的 SHA-256 管理 `pattern` / `ipc` 三个通道文件，缺失时给出结论。
-- 应用内直接为当前 Steam 构建生成 `pattern` 与 `ipc` 通道文件，不需要 Python 或仓库；生成结果与 `tools/pattern-tracker` 逐字节一致（ipc 需要指定上游 `IPCMessages.steamd`）。
+- 应用内直接为当前 Steam 构建生成 `pattern` 与 `ipc` 通道文件，不需要 Python 或仓库；上游 `IPCMessages.steamd` 已内置，生成结果与 `tools/pattern-tracker` 逐字节一致。
 - 诊断页汇总崩溃转储、缺失条目与被抑制异常，并把崩溃偏移归因到 `OpenSteamTool.dll` 或 Steam 侧。
 - 组件页区分「已加载」与「未加载 · 备用」，结论只以 `OpenSteamTool.dll` 是否被 Steam 加载为准。
 - 命令面板 `Ctrl K` 统一入口；`Ctrl 1…8`、`Ctrl R`、`Ctrl F`、`Ctrl ⇧ L`、`?` 覆盖常用操作。
@@ -125,6 +125,7 @@ G-OpenSteamTool/
 
 - [安装、升级与卸载](docs/INSTALL.md)
 - [版本变更记录](docs/CHANGELOG.md)
+- [v0.11.0 发布说明](docs/releases/v0.11.0.md)
 - [v0.10.0 发布说明](docs/releases/v0.10.0.md)
 - [v0.9.1 发布说明](docs/releases/v0.9.1.md)
 - [v0.9.0 发布说明](docs/releases/v0.9.0.md)

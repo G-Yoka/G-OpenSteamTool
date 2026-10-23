@@ -52,10 +52,10 @@ fn generate_pattern_channel_for_real_steamui() {
 }
 
 #[test]
-fn ipc_channel_is_reported_as_unsupported() {
+fn ipc_on_a_non_pe_file_fails_without_panicking() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("steam.exe"), b"fake").unwrap();
-    std::fs::write(dir.path().join("steamclient64.dll"), b"fake").unwrap();
+    std::fs::write(dir.path().join("steamclient64.dll"), b"not a pe image").unwrap();
     let err = g_opensteamtool::services::channels::generate_channel(
         dir.path().to_string_lossy().into_owned(),
         "ipc".to_string(),
@@ -63,7 +63,7 @@ fn ipc_channel_is_reported_as_unsupported() {
         None,
     )
     .unwrap_err();
-    assert!(err.contains("IPCMessages"), "unexpected error: {err}");
+    assert!(!err.is_empty());
 }
 
 #[test]
@@ -105,19 +105,26 @@ fn generate_ipc_channel_for_real_steamclient() {
     }
 }
 
+/// The embedded upstream IDL must be enough on its own.
 #[test]
-fn ipc_without_idl_is_rejected() {
+fn ipc_uses_the_embedded_idl_when_no_override_is_given() {
+    let Ok(client) = std::env::var("OST_TEST_STEAMCLIENT") else {
+        return;
+    };
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("steam.exe"), b"fake").unwrap();
-    std::fs::write(dir.path().join("steamclient64.dll"), b"fake").unwrap();
-    let err = g_opensteamtool::services::channels::generate_channel(
+    std::fs::copy(Path::new(&client), dir.path().join("steamclient64.dll")).unwrap();
+
+    let file = g_opensteamtool::services::channels::generate_channel(
         dir.path().to_string_lossy().into_owned(),
         "ipc".to_string(),
         "steamclient".to_string(),
         None,
     )
-    .unwrap_err();
-    assert!(err.contains("IPCMessages"), "unexpected error: {err}");
+    .expect("ipc with embedded idl");
+
+    assert!(file.present);
+    assert!(!file.expected_name.is_empty());
 }
 
 #[test]
@@ -144,8 +151,11 @@ fn generate_all_writes_pattern_channels_and_reports_skips() {
         .collect();
     assert!(written.contains(&"pattern/steamui".to_string()));
     assert!(written.contains(&"pattern/steamclient".to_string()));
-    assert_eq!(report.skipped.len(), 1, "ipc must be reported as skipped");
-    assert!(report.skipped[0].contains("IPCMessages"));
+    assert!(
+        written.contains(&"ipc/steamclient".to_string()),
+        "embedded IDL must make ipc zero-input: {written:?} skipped={:?}",
+        report.skipped
+    );
 
     // With an IDL the same call also writes ipc.
     if let Ok(idl) = std::env::var("OST_TEST_IDL") {

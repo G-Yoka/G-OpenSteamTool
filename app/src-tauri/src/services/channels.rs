@@ -467,10 +467,9 @@ pub fn generate_channel(
             if component != "steamclient" {
                 return Err("ipc 通道只对 steamclient 有效".to_string());
             }
-            let idl = idl.ok_or_else(|| {
-                "ipc 通道需要上游 IPCMessages.steamd：请先在设置里选择该文件".to_string()
-            })?;
-            patterns::generate_ipc(&dll, Path::new(&idl))?
+            // `None` = use the embedded upstream IDL; only an explicit override
+            // from the settings page is passed through here.
+            patterns::generate_ipc(&dll, idl.as_deref().map(Path::new))?
         }
         other => return Err(format!("未知通道: {other}")),
     };
@@ -525,12 +524,12 @@ pub fn generate_all(steam_dir: String, idl: Option<String>) -> Result<GenerateRe
             "pattern",
             patterns::generate_from(&image, &client, "steamclient")?,
         )?);
-        match idl {
-            Some(path) => match patterns::generate_ipc_from(&image, &client, Path::new(&path)) {
-                Ok(generated) => files.push(write_generated(&dir, "ipc", generated)?),
-                Err(err) => skipped.push(format!("ipc：{err}")),
-            },
-            None => skipped.push("ipc：尚未选择 IPCMessages.steamd".to_string()),
+        // The IDL defaults to the embedded upstream copy, so ipc needs no input
+        // unless the user pinned a newer one in the settings page.
+        let idl_path = idl.as_deref().map(Path::new);
+        match patterns::generate_ipc_from(&image, &client, idl_path) {
+            Ok(generated) => files.push(write_generated(&dir, "ipc", generated)?),
+            Err(err) => skipped.push(format!("ipc：{err}")),
         }
     } else {
         skipped.push("steamclient64.dll 不存在".to_string());

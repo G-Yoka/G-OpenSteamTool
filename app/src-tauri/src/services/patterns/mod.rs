@@ -26,6 +26,11 @@ const RULES_STEAMUI: &str = include_str!("../../../../../tools/pattern-tracker/r
 const RULES_STEAMCLIENT: &str =
     include_str!("../../../../../tools/pattern-tracker/rules/steamclient.toml");
 
+/// Upstream IPC schema, embedded so the `ipc` channel needs no external file.
+/// Copied verbatim from OpenSteamTool (`src/Steam/IPCMessages.steamd`, GPL-3.0);
+/// see `resources/ipc/NOTICE.md`. Users can override it from the settings page.
+pub const IDL_BUILTIN: &str = include_str!("../../../resources/ipc/IPCMessages.steamd");
+
 #[derive(Debug, Clone)]
 pub struct GeneratedPattern {
     pub channel: String,
@@ -90,7 +95,8 @@ pub fn generate_from(
 }
 
 /// Resolve the `ipc` channel: wire constants from `dll`, ids/arity from `idl`.
-pub fn generate_ipc(dll: &Path, idl: &Path) -> Result<GeneratedPattern, String> {
+/// `idl`: user override; `None` falls back to the embedded upstream copy.
+pub fn generate_ipc(dll: &Path, idl: Option<&Path>) -> Result<GeneratedPattern, String> {
     let pe = pe::Pe::load(dll).map_err(|e| e.to_string())?;
     generate_ipc_from(&pe, dll, idl)
 }
@@ -98,10 +104,14 @@ pub fn generate_ipc(dll: &Path, idl: &Path) -> Result<GeneratedPattern, String> 
 pub fn generate_ipc_from(
     pe: &pe::Pe,
     dll: &Path,
-    idl: &Path,
+    idl: Option<&Path>,
 ) -> Result<GeneratedPattern, String> {
-    let idl_text =
-        std::fs::read_to_string(idl).map_err(|e| format!("{}: {e}", idl.display()))?;
+    let idl_text = match idl {
+        Some(path) => {
+            std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?
+        }
+        None => IDL_BUILTIN.to_string(),
+    };
     let (interfaces, failures) = ipc::build(pe, &idl_text);
     if interfaces.is_empty() {
         return Err(format!(
