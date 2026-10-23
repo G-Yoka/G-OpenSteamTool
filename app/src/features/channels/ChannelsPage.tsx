@@ -99,8 +99,8 @@ export function ChannelsPage({ controller }: { controller: AppController }) {
                       <div className="btn-row end">
                         <button
                           className="btn btn-sm"
-                          disabled={busy || file.channel !== "pattern"}
-                          title={file.channel === "pattern" ? "按当前 Steam 构建在应用内生成" : "ipc 通道需要上游 IPCMessages.steamd"}
+                          disabled={busy}
+                          title={file.channel === "pattern" ? "按当前 Steam 构建在应用内生成" : "ipc 需要上游 IPCMessages.steamd，首次会提示选择文件"}
                           onClick={() => void actions.generateChannel(file.channel, file.component)}
                         >
                           <Sparkles size={11} />生成

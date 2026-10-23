@@ -27,6 +27,7 @@ fn generate_pattern_channel_for_real_steamui() {
         steam_dir.clone(),
         "pattern".to_string(),
         "steamui".to_string(),
+        None,
     )
     .expect("generate_channel");
 
@@ -54,10 +55,66 @@ fn generate_pattern_channel_for_real_steamui() {
 fn ipc_channel_is_reported_as_unsupported() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("steam.exe"), b"fake").unwrap();
+    std::fs::write(dir.path().join("steamclient64.dll"), b"fake").unwrap();
     let err = g_opensteamtool::services::channels::generate_channel(
         dir.path().to_string_lossy().into_owned(),
         "ipc".to_string(),
         "steamclient".to_string(),
+        None,
+    )
+    .unwrap_err();
+    assert!(err.contains("IPCMessages"), "unexpected error: {err}");
+}
+
+#[test]
+fn generate_ipc_channel_for_real_steamclient() {
+    let (Ok(dll), Ok(idl)) = (
+        std::env::var("OST_TEST_STEAMCLIENT"),
+        std::env::var("OST_TEST_IDL"),
+    ) else {
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("steam.exe"), b"fake").unwrap();
+    std::fs::copy(Path::new(&dll), dir.path().join("steamclient64.dll")).unwrap();
+
+    let file = g_opensteamtool::services::channels::generate_channel(
+        dir.path().to_string_lossy().into_owned(),
+        "ipc".to_string(),
+        "steamclient".to_string(),
+        Some(idl),
+    )
+    .expect("generate ipc");
+
+    assert!(file.present);
+    let written = std::fs::read_to_string(
+        dir.path()
+            .join("opensteamtool/ipc/steamclient/".to_string() + &file.expected_name + ".toml"),
+    )
+    .expect("read ipc toml");
+    assert!(written.contains("[IClientUser]"));
+    assert!(written.contains("funcHash = \"0xD6FC3200\""));
+
+    if let Ok(golden_path) = std::env::var("OST_TEST_IPC_GOLDEN") {
+        let golden = std::fs::read_to_string(golden_path).expect("golden ipc toml");
+        assert_eq!(
+            strip_comments(&written),
+            strip_comments(&golden),
+            "in-app ipc output differs from the python pipeline"
+        );
+    }
+}
+
+#[test]
+fn ipc_without_idl_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("steam.exe"), b"fake").unwrap();
+    std::fs::write(dir.path().join("steamclient64.dll"), b"fake").unwrap();
+    let err = g_opensteamtool::services::channels::generate_channel(
+        dir.path().to_string_lossy().into_owned(),
+        "ipc".to_string(),
+        "steamclient".to_string(),
+        None,
     )
     .unwrap_err();
     assert!(err.contains("IPCMessages"), "unexpected error: {err}");

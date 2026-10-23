@@ -452,20 +452,28 @@ pub fn generate_channel(
     steam_dir: String,
     channel: String,
     component: String,
+    idl: Option<String>,
 ) -> Result<ChannelFile> {
     let dir = manager::validate_steam_dir(&steam_dir)?;
-    if channel != "pattern" {
-        return Err(
-            "ipc 通道需要上游 IPCMessages.steamd，应用内目前只能生成 pattern".to_string(),
-        );
-    }
     let dll_name = patterns::dll_file_for(&component)
         .ok_or_else(|| format!("未知组件: {component}"))?;
     let dll = dir.join(dll_name);
     if !dll.is_file() {
         return Err(format!("找不到 {dll_name}，请先确认 Steam 目录"));
     }
-    let generated = patterns::generate(&dll, &component)?;
+    let generated = match channel.as_str() {
+        "pattern" => patterns::generate(&dll, &component)?,
+        "ipc" => {
+            if component != "steamclient" {
+                return Err("ipc 通道只对 steamclient 有效".to_string());
+            }
+            let idl = idl.ok_or_else(|| {
+                "ipc 通道需要上游 IPCMessages.steamd：请先在设置里选择该文件".to_string()
+            })?;
+            patterns::generate_ipc(&dll, Path::new(&idl))?
+        }
+        other => return Err(format!("未知通道: {other}")),
+    };
     let target_dir = dir.join("opensteamtool").join(&channel).join(&component);
     std::fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
     let target = target_dir.join(format!("{}.toml", generated.sha256));

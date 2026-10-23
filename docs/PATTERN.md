@@ -1,6 +1,6 @@
 # 数据通道生成（pattern / ipc）
 
-> 面向维护者。**pattern 通道现在可以在应用内直接生成**：数据通道页每行的「生成」按钮会读取当前 Steam 构建的 DLL 并在本地完成解析，本页的 CLI 仍适用于 ipc 通道、CI 与离线批处理。
+> 面向维护者。**pattern 与 ipc 通道现在都能在应用内生成**：数据通道页每行的「生成」按钮读取当前构建的 DLL 就地解析；ipc 另需在设置里指定上游 `IPCMessages.steamd`（只存本机路径）。本页的 CLI 仍适用于 CI 与离线批处理。
 
 Steam 每次更新都会改变 `steamui.dll` / `steamclient64.dll` 的内容，三个数据通道因此都需要重新生成：
 

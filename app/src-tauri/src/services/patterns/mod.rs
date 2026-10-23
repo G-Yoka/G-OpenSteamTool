@@ -9,6 +9,7 @@
 //! `ipc` channel additionally needs the upstream `IPCMessages.steamd`, so it is
 //! not generated here.
 
+pub mod ipc;
 pub mod pe;
 pub mod resolve;
 pub mod rtti;
@@ -78,6 +79,29 @@ pub fn generate(dll: &Path, component: &str) -> Result<GeneratedPattern, String>
     })
 }
 
+/// Resolve the `ipc` channel: wire constants from `dll`, ids/arity from `idl`.
+pub fn generate_ipc(dll: &Path, idl: &Path) -> Result<GeneratedPattern, String> {
+    let idl_text =
+        std::fs::read_to_string(idl).map_err(|e| format!("{}: {e}", idl.display()))?;
+    let pe = pe::Pe::load(dll).map_err(|e| e.to_string())?;
+    let (interfaces, failures) = ipc::build(&pe, &idl_text);
+    if interfaces.is_empty() {
+        return Err(format!(
+            "没有从 IDL 里解析出可用的 IPC 方法（{} 处失败）",
+            failures.len()
+        ));
+    }
+    let hooks = ipc::method_count(&interfaces);
+    let text = ipc::dump(&interfaces);
+    let sha256 = sha256_file(dll)?;
+    Ok(GeneratedPattern {
+        channel: "ipc".to_string(),
+        component: "steamclient".to_string(),
+        sha256,
+        text,
+        hooks,
+    })
+}
 #[cfg(test)]
 mod tests {
     use super::*;

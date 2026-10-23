@@ -3,7 +3,7 @@ import type { BuildInspection, GameConfig, LogFile, ManagerSettings, ScanState }
 export type PageId = "overview" | "channels" | "dlls" | "games" | "logs" | "diagnostics" | "settings" | "about";
 
 /** 界面显示的版本号单一来源（与 package.json 的发布号保持同步）。 */
-export const APP_VERSION = "0.8.0";
+export const APP_VERSION = "0.9.0";
 export type ActivityState = "idle" | "loading" | "working";
 export type NoticeTone = "neutral" | "working" | "success" | "error";
 

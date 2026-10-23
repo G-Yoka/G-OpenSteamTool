@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   closeSteam, deleteGame, detectSteamDir, discoverDepots, importLuaFile, inspectBuild,
-  generateChannelFile, installChannelFile, installDlls, listGames, loadSettings, openLuaDir, pickSteamDir,
+  generateChannelFile, installChannelFile, installDlls, pickIdlFile, listGames, loadSettings, openLuaDir, pickSteamDir,
   pickTomlFile, readLogs, removeChannelFile, removeDlls, restartSteam,
   saveSettings, scanState, setGameEnabled, upsertGame,
 } from "../api";
@@ -185,12 +185,24 @@ export function useAppController() {
         ["all"],
       ).catch(() => undefined);
     },
-    generateChannel: (channel: string, component: string) => run(
-      async () => { await generateChannelFile(steamDir, channel, component); },
-      "正在按当前 Steam 构建生成通道数据…",
-      `${channel}/${component} 已生成，重启 Steam 生效`,
-      ["all"],
-    ).catch(() => undefined),    removeChannel: (channel: string, component: string) => run(
+    generateChannel: async (channel: string, component: string) => {
+      let idl: string | null = null;
+      if (channel === "ipc") {
+        idl = localStorage.getItem("gost.idl");
+        if (!idl) {
+          const picked = await pickIdlFile();
+          if (!picked) { notify("neutral", "ipc 通道需要 IPCMessages.steamd，已取消"); return; }
+          localStorage.setItem("gost.idl", picked);
+          idl = picked;
+        }
+      }
+      await run(
+        async () => { await generateChannelFile(steamDir, channel, component, idl); },
+        channel === "ipc" ? "正在从 IDL 与 DLL 提取 ipc 常量…" : "正在按当前 Steam 构建生成通道数据…",
+        `${channel}/${component} 已生成，重启 Steam 生效`,
+        ["all"],
+      ).catch(() => undefined);
+    },    removeChannel: (channel: string, component: string) => run(
       async () => { await removeChannelFile(steamDir, channel, component); },
       "正在移除通道数据…",
       `${channel}/${component} 已移除`,

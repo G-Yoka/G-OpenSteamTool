@@ -1,5 +1,6 @@
-import { FileSliders, Link2, Save, TimerReset } from "lucide-react";
+import { FileSliders, FolderOpen, Link2, Save, TimerReset } from "lucide-react";
 import { useEffect, useState } from "react";
+import { pickIdlFile } from "../../api";
 import type { AppController } from "../../app/useAppController";
 import type { ManagerSettings } from "../../types";
 import { Badge, Card, CardHead, Field, Toggle } from "../../shared/ui";
@@ -8,6 +9,7 @@ export function SettingsPage({ controller }: { controller: AppController }) {
   const { state, actions } = controller;
   const [draft, setDraft] = useState<ManagerSettings>(state.settings);
   const [luaPaths, setLuaPaths] = useState(state.settings.lua_paths.join("\n"));
+  const [idlPath, setIdlPath] = useState(() => localStorage.getItem("gost.idl") ?? "");
   useEffect(() => {
     setDraft(state.settings);
     setLuaPaths(state.settings.lua_paths.join("\n"));
@@ -16,6 +18,12 @@ export function SettingsPage({ controller }: { controller: AppController }) {
   const template = draft.remote_url_template.trim();
   const missingPlaceholder = template !== "" && !["{channel}", "{component}", "{sha256}"].every((token) => template.includes(token));
   const dirty = JSON.stringify({ ...draft, lua_paths: luaPaths.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) }) !== JSON.stringify(state.settings);
+  const pickIdl = async () => {
+    const picked = await pickIdlFile();
+    if (!picked) return;
+    localStorage.setItem("gost.idl", picked);
+    setIdlPath(picked);
+  };
   const save = () => actions.saveSettings({ ...draft, lua_paths: luaPaths.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) });
 
   return (
@@ -74,6 +82,25 @@ export function SettingsPage({ controller }: { controller: AppController }) {
           label="缺条目时静默"
           description="[ui] suppress_missing_popup：缺钩子只写日志、不弹窗（需要自建 DLL 才生效）"
         />
+      </Card>
+
+      <Card>
+        <CardHead
+          title="IPC 定义文件"
+          sub="生成 ipc 通道时读取接口、方法与 arity；路径只记录在本机"
+          accent={Boolean(idlPath)}
+        />
+        <Field
+          label="IPCMessages.steamd"
+          hint="来自 OpenSteamTool 上游源码 src/Steam/IPCMessages.steamd；不会写入 opensteamtool.toml"
+        >
+          <div className="btn-row">
+            <input className="input mono" value={idlPath} readOnly placeholder="尚未选择" />
+            <button className="btn btn-sm" onClick={() => void pickIdl()}>
+              <FolderOpen size={11} />选择…
+            </button>
+          </div>
+        </Field>
       </Card>
 
       <Card>

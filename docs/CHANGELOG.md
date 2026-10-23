@@ -1,5 +1,12 @@
 # 版本变更记录
 
+## v0.9.0
+
+- 新增应用内 ipc 通道生成：从 `steamclient64.dll` 的 wrapper 提取 `funcHash` / `fencepost`，接口号与 `argc` 取自上游 IDL。
+- `ipc.py` 的 IDL 解析、wrapper 定位与 TOML 输出移植为 Rust。
+- 设置页新增「IPC 定义文件」，记录 `IPCMessages.steamd` 路径（仅本机）。
+- 首次对 ipc 点「生成」自动弹出文件选择器并记忆路径。
+- 输出与上游 Python 流水线逐字节一致。
 ## v0.8.0
 
 - 新增应用内 pattern 通道生成：数据通道页「生成」按钮直接读当前 Steam 构建的 `steamui.dll` / `steamclient64.dll`，无需 Python 与仓库。

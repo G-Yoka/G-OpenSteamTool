@@ -143,10 +143,20 @@ export async function installChannelFile(
 }
 
 export async function generateChannelFile(
-  steamDir: string, channel: string, component: string,
+  steamDir: string, channel: string, component: string, idl?: string | null,
 ): Promise<ChannelFile> {
   if (!hasTauri()) throw new Error("预览模式无法生成通道文件");
-  return invoke<ChannelFile>("generate_channel_file", { steamDir, channel, component });
+  return invoke<ChannelFile>("generate_channel_file", { steamDir, channel, component, idl: idl ?? null });
+}
+
+export async function pickIdlFile(): Promise<string | null> {
+  if (!hasTauri()) return null;
+  const picked = await open({
+    multiple: false,
+    title: "选择上游 IPC 定义文件（IPCMessages.steamd）",
+    filters: [{ name: "IPC definition", extensions: ["steamd", "idl", "h"] }],
+  });
+  return typeof picked === "string" ? picked : null;
 }
 export async function removeChannelFile(
   steamDir: string, channel: string, component: string,

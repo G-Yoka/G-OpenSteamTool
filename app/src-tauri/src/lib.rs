@@ -140,9 +140,10 @@ async fn generate_channel_file(
     steam_dir: String,
     channel: String,
     component: String,
+    idl: Option<String>,
 ) -> CommandResult<services::channels::ChannelFile> {
     tauri::async_runtime::spawn_blocking(move || {
-        services::channels::generate_channel(steam_dir, channel, component)
+        services::channels::generate_channel(steam_dir, channel, component, idl)
     })
     .await
     .map_err(|e| e.to_string())?
