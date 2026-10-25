@@ -16,8 +16,9 @@ G-OpenSteamTool is a Windows desktop manager for Steam-local OpenSteamTool compo
 - Detects and remembers the Steam installation directory.
 - Installs, scans, and safely removes managed OpenSteamTool DLLs with SHA-256 verification.
 - Manages `opensteamtool.toml` and `G-<AppId>.lua` files.
-- Reads App names, Depot IDs, and public manifests from local `appinfo.vdf`.
+- Reads App names, Depot IDs, and public manifests from local `appinfo.vdf`, and enumerates the App's DLC through `extended.listofdlc`.
 - Merges Depot keys already present in the local Steam `config.vdf`.
+- Auto-discovery groups results as “base content / DLC 1..n”: a DLC's depots come from its own `appinfo` entry, the base App's `dlcappid` depots, and the depots of owned packages in `packageinfo.vdf`; DLC that already has local keys is selected by default.
 - Imports existing Lua configurations and preserves multiple Depot/Manifest entries.
 - Reads local OpenSteamTool logs and restarts Steam without blocking the UI.
 - Manages the three data channels (`pattern/steamui`, `pattern/steamclient`, `ipc/steamclient`) keyed by the current Steam build SHA-256.

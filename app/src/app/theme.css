@@ -616,7 +616,16 @@ a:hover { color: var(--fg); text-decoration: underline; }
 .entries { border: 1px solid var(--line); border-radius: var(--r-sm); overflow: hidden; }
 .entries-head, .entry-row { display: grid; gap: 6px; align-items: center; padding: 0 6px; }
 .entries.cols-3 .entries-head, .entries.cols-3 .entry-row { grid-template-columns: 112px 96px minmax(0, 1fr) 22px; }
+.entries.cols-4 .entries-head, .entries.cols-4 .entry-row { grid-template-columns: 40px 112px 96px minmax(0, 1fr) 22px; }
+.entries.cols-3m .entries-head, .entries.cols-3m .entry-row { grid-template-columns: 40px 112px minmax(0, 1fr) 22px; }
 .entries.cols-2 .entries-head, .entries.cols-2 .entry-row { grid-template-columns: 112px minmax(0, 1fr) 22px; }
+/* 归属标注：主体 / DLC，配合分组条使用（v0.13.3） */
+.owner-tag { font-size: var(--fs-meta); color: var(--fg-3); text-align: center; letter-spacing: 0; }
+.owner-tag.is-base { color: var(--fg-2); }
+.owner-tag.is-dlc { color: var(--accent-fg); }
+.entry-group { display: flex; align-items: center; height: 22px; padding: 0 6px; border-top: 1px solid var(--line); background: var(--raise); color: var(--fg-2); font-size: var(--fs-meta-cjk); letter-spacing: 0; }
+.entry-group.is-base { color: var(--fg-3); }
+.entry-group-meta { margin-left: auto; font-size: var(--fs-meta); color: var(--fg-3); }
 .entries-head { height: 22px; border-bottom: 1px solid var(--line); color: var(--fg-3); font-size: var(--fs-meta-cjk); letter-spacing: 0; }
 .entry-row { min-height: 28px; border-top: 1px solid var(--line); }
 .entry-row:first-of-type { border-top: 0; }
@@ -775,3 +784,15 @@ a:hover { color: var(--fg); text-decoration: underline; }
 @media (prefers-reduced-motion: reduce) {
   .palette-scrim, .palette, .sheet, .main > * { animation: none !important; }
 }
+
+/* 本地发现分组：主内容 / DLC 1..n —— 与「Depot 解密」条目表同区块，只做分组呈现 */
+.discovery { display: flex; flex-direction: column; margin: 0 0 8px; padding: 7px 9px 4px; border: 1px solid var(--line); border-radius: var(--r); }
+.discovery-head { display: flex; align-items: baseline; gap: 8px; padding: 0 0 6px; }
+.discovery-title { font-size: var(--fs-meta-cjk); font-weight: 600; color: var(--fg-2); }
+.discovery-row { display: grid; grid-template-columns: 56px minmax(0, 1fr) 76px 118px 62px; align-items: center; gap: 8px; padding: 4px 0; border-top: 1px solid var(--line); }
+.discovery-row.is-off { opacity: .5; }
+.discovery-tag { font-size: var(--fs-meta); color: var(--fg-3); letter-spacing: .02em; text-transform: uppercase; }
+.discovery-name { font-size: var(--fs-table); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.discovery-appid { color: var(--fg-2); }
+.discovery-meta { font-size: var(--fs-meta); color: var(--fg-3); text-align: right; white-space: nowrap; }
+.discovery-row .btn { justify-self: end; }

@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  closeSteam, deleteGame, detectSteamDir, discoverDepots, importLuaFile, inspectBuild,
+  closeSteam, deleteGame, detectSteamDir, depotOwnership, discoverDepots, importLuaFiles, inspectBuild,
   generateAllChannels, generateChannelFile, installChannelFile, installDlls, listGames, loadSettings, openLuaDir, pickSteamDir,
   pickTomlFile, readLogs, removeChannelFile, removeDlls, restartSteam,
   saveSettings, scanState, setGameEnabled, upsertGame,
+  installManifestLua as installManifestLuaApi,
+  removeManifestLua as removeManifestLuaApi,
+  manifestLuaStatus,
+  probeManifestChannel,
 } from "../api";
-import type { BuildInspection, GameConfig, ManagerSettings } from "../types";
+import type { BuildInspection, GameConfig, ManagerSettings, ManifestLuaStatus } from "../types";
 import { defaultSettings, emptyGame, errorMessage, normalizeGame, type NoticeTone, type PageId } from "./model";
 
 const STEAM_DIR_KEY = "gost.steamDirectory";
@@ -15,6 +19,7 @@ export function useAppController() {
   const [steamDir, setSteamDir] = useState("");
   const [scan, setScan] = useState<Awaited<ReturnType<typeof scanState>> | null>(null);
   const [build, setBuild] = useState<BuildInspection | null>(null);
+  const [manifestLua, setManifestLua] = useState<ManifestLuaStatus | null>(null);
   const [settings, setSettings] = useState<ManagerSettings>(defaultSettings);
   const [games, setGames] = useState<GameConfig[]>([]);
   const [logs, setLogs] = useState<Awaited<ReturnType<typeof readLogs>>>([]);
@@ -48,10 +53,11 @@ export function useAppController() {
   }, [steamDir]);
   const refreshAll = useCallback(async (dir = steamDir) => {
     if (!dir) return;
-    const [nextScan, nextSettings, nextGames, nextLogs, nextBuild] = await Promise.all([
-      scanState(dir), loadSettings(dir), listGames(dir), readLogs(dir), inspectBuild(dir),
+    const [nextScan, nextSettings, nextGames, nextLogs, nextBuild, nextManifestLua] = await Promise.all([
+      scanState(dir), loadSettings(dir), listGames(dir), readLogs(dir), inspectBuild(dir), manifestLuaStatus(dir),
     ]);
     setScan(nextScan); setSettings(nextSettings); setGames(nextGames); setLogs(nextLogs); setBuild(nextBuild);
+    setManifestLua(nextManifestLua);
     pickFirstGame(nextGames);
     setSelectedLog((current) => nextLogs.some((item) => item.name === current) ? current : nextLogs[0]?.name ?? "");
   }, [steamDir]);
@@ -174,7 +180,40 @@ export function useAppController() {
     removeDlls: () => run(() => removeDlls(steamDir), "正在安全移除 DLL…", "DLL 已移除", ["scan"]).catch(() => undefined),
     closeSteam: () => run(closeSteam, "正在关闭 Steam…", "Steam 已关闭", ["scan"]).catch(() => undefined),
     restartSteam: () => run(() => restartSteam(steamDir), "正在重启 Steam…", "Steam 已重启", ["scan"]).catch(() => undefined),
-    saveSettings: (next: ManagerSettings) => run(async () => { await saveSettings(steamDir, next); setSettings(next); }, "正在保存设置…", "设置已保存", ["scan"]).catch(() => undefined),
+    saveSettings: (next: ManagerSettings) => run(async () => { await saveSettings(steamDir, next); setSettings(next); }, "正在保存设置…", "设置已保存", ["all"]).catch(() => undefined),
+    installManifestLua: async () => {
+      setActivity("working");
+      try {
+        const status = await installManifestLuaApi(steamDir);
+        setManifestLua(status);
+        notify("success", "manifest.lua 已写入，重启 Steam 生效");
+        return status;
+      } catch (error) { notify("error", errorMessage(error)); return null; }
+      finally { setActivity("idle"); }
+    },
+    removeManifestLua: async () => {
+      setActivity("working");
+      try {
+        const status = await removeManifestLuaApi(steamDir);
+        setManifestLua(status);
+        notify("success", "manifest.lua 已移除");
+        return status;
+      } catch (error) { notify("error", errorMessage(error)); return null; }
+      finally { setActivity("idle"); }
+    },
+    probeManifest: async (appid?: number | null) => {
+      setActivity("working");
+      notify("working", "正在测试 manifest 取码与 CDN…");
+      try {
+        const result = await probeManifestChannel(steamDir, appid ?? null);
+        const usable = result.download?.status === 200;
+        notify(usable ? "success" : "error", usable
+          ? `下载通道可用：${result.download?.provider} → CDN ${result.download?.status}`
+          : "下载通道不可用：没有源返回可用的 code，或 CDN 拒绝");
+        return result;
+      } catch (error) { notify("error", errorMessage(error)); return null; }
+      finally { setActivity("idle"); }
+    },
     saveGame: async (game: GameConfig) => {
       const normalized = normalizeGame(game);
       try { await run(() => upsertGame(steamDir, normalized), "正在生成 Lua 配置…", `G-${normalized.appid}.lua 已保存`, ["games", "scan"]); setSelectedGame(emptyGame); }
@@ -194,17 +233,43 @@ export function useAppController() {
       try {
         const result = await discoverDepots(steamDir, appid);
         const keyed = result.depots.filter((depot) => depot.depot_key).length;
-        notify("success", `发现 ${result.depots.length} 个 Depot，其中 ${keyed} 个包含本地 Key`);
+        const ownedDlc = result.dlc.filter((dlc) => dlc.key_found).length;
+        notify(
+          "success",
+          result.dlc.length
+            ? `发现 ${result.depots.length} 个 Depot（${keyed} 个含本地 Key），${result.dlc.length} 个 DLC 中 ${ownedDlc} 个已有内容`
+            : `发现 ${result.depots.length} 个 Depot，其中 ${keyed} 个包含本地 Key`,
+        );
         return result;
       } catch (error) { notify("error", errorMessage(error)); return null; }
       finally { setActivity("idle"); }
     },
+    // 静默的归属标注：给已保存配置的每一行标「主内容 / DLC」，失败就当没有。
+    classifyDepots: (appid: number) =>
+      appid ? depotOwnership(steamDir, appid).catch(() => null) : Promise.resolve(null),
+    // 一次多选导入：单个文件解析失败只跳过它，其余照常写入并刷新配置库。
     importLua: async () => {
       setActivity("working");
       try {
-        const game = await importLuaFile(steamDir);
-        if (!game) { notify("neutral", "已取消导入"); return; }
-        await Promise.all([refreshGames(), refreshScan()]); setSelectedGame(normalizeGame(game)); notify("success", `G-${game.appid}.lua 已导入`);
+        const report = await importLuaFiles(steamDir);
+        if (!report) { notify("neutral", "已取消导入"); return; }
+        const { imported, failed } = report;
+        const reason = failed.length ? `${failed[0].file_name}：${failed[0].error}` : "";
+        if (!imported.length) {
+          notify("error", failed.length ? `导入失败（${reason}）` : "没有可导入的 Lua 文件");
+          return;
+        }
+        await Promise.all([refreshGames(), refreshScan()]);
+        setSelectedGame(normalizeGame(imported[0]));
+        const suffix = failed.length
+          ? `；${failed.length} 个失败（${reason}${failed.length > 1 ? " 等" : ""}）`
+          : "";
+        notify(
+          failed.length ? "neutral" : "success",
+          imported.length === 1
+            ? `G-${imported[0].appid}.lua 已导入${suffix}`
+            : `已导入 ${imported.length} 个配置${suffix}`,
+        );
       } catch (error) { notify("error", errorMessage(error)); }
       finally { setActivity("idle"); }
     },
@@ -239,7 +304,7 @@ export function useAppController() {
   }), [notify, refreshAll, refreshGames, refreshScan, run, steamDir]);
 
   return {
-    state: { page, steamDir, scan, build, settings, games, logs, selectedLog, selectedGame, activity, notice },
+    state: { page, steamDir, scan, build, settings, games, logs, selectedLog, selectedGame, activity, notice, manifestLua },
     actions,
   };
 }

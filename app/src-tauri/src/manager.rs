@@ -4,16 +4,17 @@ use sha2::{Digest, Sha256};
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     ffi::OsStr,
     fs,
     io::{Read, Write},
     path::{Path, PathBuf},
     process::Command,
     thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use steam_vdf_parser::value::Obj as VdfObject;
+use steam_vdf_parser::value::Value as VdfValue;
 use tauri::path::BaseDirectory;
 use tauri::Manager;
 #[cfg(windows)]
@@ -59,13 +60,23 @@ pub struct ManagerSettings {
     /// it, so it is never written back.
     #[serde(default)]
     pub pattern_mirror: String,
+    /// Write `<Steam>/config/lua/manifest.lua` with the manifest-code fallback
+    /// chain. The bundled DLL only knows `opensteamtool`/`wudrm`/`steamrun`,
+    /// and all three stopped working after Valve added the ownership check, so
+    /// the download channel now has to be supplied through Lua.
+    #[serde(default = "default_true")]
+    pub manage_manifest_lua: bool,
+    /// Optional self-hosted endpoint prefix (for example
+    /// `http://127.0.0.1:8787/manifest/`). The gid is appended verbatim.
+    #[serde(default)]
+    pub manifest_lua_endpoint: String,
 }
 
 impl Default for ManagerSettings {
     fn default() -> Self {
         Self {
             log_level: "info".into(),
-            manifest_url: "wudrm".into(),
+            manifest_url: "opensteamtool".into(),
             timeout_resolve_ms: 5000,
             timeout_connect_ms: 5000,
             timeout_send_ms: 10000,
@@ -74,6 +85,8 @@ impl Default for ManagerSettings {
             remote_url_template: String::new(),
             suppress_missing_popup: false,
             pattern_mirror: String::new(),
+            manage_manifest_lua: true,
+            manifest_lua_endpoint: String::new(),
         }
     }
 }
@@ -170,13 +183,37 @@ pub struct DiscoveredDepot {
     pub manifest_gid: Option<String>,
 }
 
+/// One DLC of the discovered App: its own AppId, the depots the DLC ships, and
+/// whether any of those depots already has a local `config.vdf` key.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DiscoveredDlc {
+    pub appid: u32,
+    pub name: Option<String>,
+    pub depots: Vec<DiscoveredDepot>,
+    pub key_found: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DepotDiscovery {
     pub appid: u32,
     pub name: String,
     pub depots: Vec<DiscoveredDepot>,
+    /// DLC enumerated from `appinfo.extended.listofdlc`; DLC with a local key
+    /// are sorted first so the UI can default-select the owned ones.
+    pub dlc: Vec<DiscoveredDlc>,
     pub app_source: String,
     pub config_found: bool,
+}
+
+/// Which part of a game an AppId / DepotId belongs to. Used to label the rows of
+/// an already-saved Lua, where the discovery result itself is long gone.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DepotOwnership {
+    pub appid: u32,
+    /// `"base"` or `"dlc"`.
+    pub group: String,
+    pub dlc_appid: Option<u32>,
+    pub dlc_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -354,6 +391,15 @@ pub fn load_settings_from_dir<P: AsRef<Path>>(steam_dir: P) -> Result<ManagerSet
             settings.suppress_missing_popup = flag;
         }
     }
+    // G-OpenSteamTool-specific section; the DLL ignores unknown sections.
+    if let Some(manager) = value.get("manager").and_then(|v| v.as_table()) {
+        if let Some(flag) = manager.get("manage_manifest_lua").and_then(|v| v.as_bool()) {
+            settings.manage_manifest_lua = flag;
+        }
+        if let Some(endpoint) = manager.get("manifest_lua_endpoint").and_then(|v| v.as_str()) {
+            settings.manifest_lua_endpoint = endpoint.to_string();
+        }
+    }
     if settings.remote_url_template.trim().is_empty() {
         let legacy = settings.pattern_mirror.trim().trim_end_matches('/');
         if !legacy.is_empty() {
@@ -407,7 +453,15 @@ pub fn save_settings_to_dir<P: AsRef<Path>>(
         "\n[ui]\nsuppress_missing_popup = {}\n",
         settings.suppress_missing_popup
     ));
-    safe_replace_file(&steam_dir.join("opensteamtool.toml"), text.as_bytes())
+    text.push_str(&format!(
+        "\n[manager]\nmanage_manifest_lua = {}\nmanifest_lua_endpoint = \"{}\"\n",
+        settings.manage_manifest_lua,
+        escape_toml(&settings.manifest_lua_endpoint)
+    ));
+    safe_replace_file(&steam_dir.join("opensteamtool.toml"), text.as_bytes())?;
+    // The DLL only knows three provider names and all of them are dead; the
+    // working download channel is delivered through config/lua/manifest.lua.
+    sync_manifest_lua(&steam_dir, settings)
 }
 
 pub fn render_game_lua(game: &GameConfig) -> Result<String> {
@@ -455,6 +509,546 @@ pub fn render_game_lua(game: &GameConfig) -> Result<String> {
     Ok(lines.join("\n"))
 }
 
+const MANIFEST_LUA_SENTINEL: &str = "-- GOST-MANIFEST-LUA v1";
+const MANIFEST_DEX_PREFIX: &str = "https://manifest.manifestdex.com/";
+const MANIFEST_DEX_UA: &str = "ManifestDeX/1.0";
+/// Providers the bundled DLL knows by name. All three stopped returning codes
+/// after Valve added the ownership check, but they are still probed so the
+/// diagnostics page can show *why* a build fails.
+const LEGACY_MANIFEST_PROVIDERS: [(&str, &str); 3] = [
+    ("opensteamtool", "https://manifest.opensteamtool.com/"),
+    ("steamrun", "https://manifest.steam.run/api/manifest/"),
+    ("wudrm", "http://gmrc.wudrm.com/manifest/"),
+];
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ManifestLuaStatus {
+    pub path: String,
+    pub present: bool,
+    pub managed: bool,
+    pub bytes: u64,
+    pub modified_time: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ManifestProbe {
+    pub provider: String,
+    pub url: String,
+    pub status: Option<u16>,
+    pub latency_ms: u64,
+    pub body: String,
+    pub error: Option<String>,
+    pub code_ok: bool,
+    /// `x-manifest-cdn` hint returned by ManifestDeX, used for the CDN probe.
+    pub cdn_hint: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DownloadProbe {
+    pub provider: String,
+    pub code: String,
+    pub cdn_host: String,
+    /// Cache group reported by Steam for this host (hkg1 = 33, tyo3 = 32 …).
+    pub cdn_cell: Option<u32>,
+    /// Where the host came from: `steam-cell` (CellID → Steam WebAPI),
+    /// `steam-log` (recent content_log.txt), `provider-hint`, `default`.
+    pub cdn_source: String,
+    pub url: String,
+    pub status: Option<u16>,
+    pub bytes: u64,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ManifestChannelProbe {
+    pub appid: u32,
+    pub game_name: String,
+    pub depot_id: u32,
+    pub manifest_gid: String,
+    pub cell_id: Option<u32>,
+    /// Hosts Steam itself used most recently (content_log.txt), including the
+    /// mainland partner CDNs that need a per-license token.
+    pub steam_hosts: Vec<String>,
+    pub providers: Vec<ManifestProbe>,
+    pub download: Option<DownloadProbe>,
+}
+
+fn lua_escape(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+/// The DLL parses `.lua` files **line by line**: each time the accumulated
+/// buffer compiles, it is executed and the buffer is cleared
+/// (`LuaConfig::ParseFile`, see `luaL_loadstring` loop upstream). A top-level
+/// `local` dies with its own chunk, so the previously generated file — which
+/// declared `local SOURCES / memo / parse_code / fetch` and then a global
+/// `fetch_manifest_code_ex` referring to them — failed on every call with
+/// `attempt to index a nil value (global 'memo')`. The DLL then fell back to
+/// `[manifest] url` (dead provider), Valve answered `Access Denied`, and Steam
+/// showed 「无互联网连接」.
+///
+/// Everything therefore lives inside the function body, or in a global table
+/// (`GOST_MANIFEST_SOURCES`), which survives between chunks.
+pub fn render_manifest_lua(settings: &ManagerSettings) -> String {
+    let mut sources = String::new();
+    let custom = settings.manifest_lua_endpoint.trim();
+    if !custom.is_empty() {
+        let prefix = if custom.ends_with('/') {
+            custom.to_string()
+        } else {
+            format!("{custom}/")
+        };
+        sources.push_str(&format!(
+            "    {{ prefix = \"{}\", ua = \"\" }},\n",
+            lua_escape(&prefix)
+        ));
+    }
+    sources.push_str(&format!(
+        "    {{ prefix = \"{MANIFEST_DEX_PREFIX}\", ua = \"{MANIFEST_DEX_UA}\" }},\n"
+    ));
+
+    format!(
+        r#"{MANIFEST_LUA_SENTINEL}
+-- 由 G-OpenSteamTool 生成：manifest request code 多源回退。
+-- 注意：OST 的 Lua 解析器逐行累积成块执行，顶层 local 会在块结束时销毁，
+-- 所以本文件不写顶层 local —— 状态放在函数体内或全局表里。
+-- 删除首行标记即视为用户自管，工具不再覆盖本文件。
+
+GOST_MANIFEST_SOURCES = {{
+{sources}}}
+
+function fetch_manifest_code_ex(app_id, depot_id, gid)
+    local gid_s = tostring(gid)
+    local memo = GOST_MANIFEST_MEMO
+    if type(memo) ~= "table" then
+        memo = {{}}
+        GOST_MANIFEST_MEMO = memo
+    end
+    if memo[gid_s] then return memo[gid_s] end
+    local sources = GOST_MANIFEST_SOURCES
+    for i = 1, #sources do
+        local src = sources[i]
+        local headers = nil
+        if src.ua ~= "" then headers = {{ ["User-Agent"] = src.ua }} end
+        local ok, body, status = pcall(function()
+            return http_get(src.prefix .. gid_s, headers)
+        end)
+        if ok and status == 200 and type(body) == "string" then
+            local code = string.match(body, "^%s*(%d+)%s*$")
+            if not code then code = string.match(body, '"content"%s*:%s*"(%d+)"') end
+            if code then
+                memo[gid_s] = code
+                return code
+            end
+        end
+    end
+    return nil
+end
+
+function fetch_manifest_code(gid)
+    return fetch_manifest_code_ex(0, 0, gid)
+end
+"#
+    )
+}
+
+pub fn manifest_lua_path(steam_dir: &Path) -> PathBuf {
+    lua_dir(steam_dir).join("manifest.lua")
+}
+
+pub fn manifest_lua_status<P: AsRef<Path>>(steam_dir: P) -> Result<ManifestLuaStatus> {
+    let steam_dir = validate_steam_dir(steam_dir)?;
+    let path = manifest_lua_path(&steam_dir);
+    let present = path.is_file();
+    let (managed, bytes, modified_time) = if present {
+        let text = fs::read_to_string(&path).unwrap_or_default();
+        (
+            text.contains(MANIFEST_LUA_SENTINEL),
+            fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0),
+            fs::metadata(&path)
+                .and_then(|meta| meta.modified())
+                .ok()
+                .and_then(system_time_secs),
+        )
+    } else {
+        (false, 0, None)
+    };
+    Ok(ManifestLuaStatus {
+        path: display_path(&path),
+        present,
+        managed,
+        bytes,
+        modified_time,
+    })
+}
+
+pub fn install_manifest_lua<P: AsRef<Path>>(
+    steam_dir: P,
+    settings: &ManagerSettings,
+) -> Result<ManifestLuaStatus> {
+    let steam_dir = validate_steam_dir(steam_dir)?;
+    let path = manifest_lua_path(&steam_dir);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    safe_replace_file(&path, render_manifest_lua(settings).as_bytes())?;
+    manifest_lua_status(&steam_dir)
+}
+
+pub fn remove_manifest_lua<P: AsRef<Path>>(steam_dir: P) -> Result<ManifestLuaStatus> {
+    let steam_dir = validate_steam_dir(steam_dir)?;
+    let path = manifest_lua_path(&steam_dir);
+    if path.exists() {
+        fs::remove_file(&path).map_err(|err| err.to_string())?;
+    }
+    manifest_lua_status(&steam_dir)
+}
+
+/// Keeps `config/lua/manifest.lua` in sync with the settings. Files without the
+/// managed sentinel belong to the user and are never touched.
+fn sync_manifest_lua(steam_dir: &Path, settings: &ManagerSettings) -> Result<()> {
+    let path = manifest_lua_path(steam_dir);
+    if settings.manage_manifest_lua {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+        }
+        safe_replace_file(&path, render_manifest_lua(settings).as_bytes())
+    } else if path.exists() {
+        let text = fs::read_to_string(&path).unwrap_or_default();
+        if text.contains(MANIFEST_LUA_SENTINEL) {
+            fs::remove_file(&path).map_err(|err| err.to_string())?;
+        }
+        Ok(())
+    } else {
+        Ok(())
+    }
+}
+
+fn provider_url(prefix: &str, gid: &str) -> String {
+    format!("{prefix}{gid}")
+}
+
+fn probe_provider(client: &reqwest::blocking::Client, provider: &str, url: &str, ua: Option<&str>) -> ManifestProbe {
+    let started = Instant::now();
+    let mut request = client.get(url);
+    if let Some(ua) = ua {
+        request = request.header(reqwest::header::USER_AGENT, ua);
+    }
+    match request.send() {
+        Ok(response) => {
+            let status = response.status().as_u16();
+            let cdn_hint = response
+                .headers()
+                .get("x-manifest-cdn")
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string);
+            let body = response.text().unwrap_or_default();
+            let trimmed = body.trim();
+            let code_ok = !trimmed.is_empty()
+                && trimmed.len() <= 20
+                && trimmed.chars().all(|ch| ch.is_ascii_digit())
+                && trimmed.parse::<u64>().map(|code| code > 0).unwrap_or(false);
+            let head = if trimmed.len() > 64 {
+                format!("{}…", &trimmed[..64])
+            } else {
+                trimmed.to_string()
+            };
+            ManifestProbe {
+                provider: provider.to_string(),
+                url: url.to_string(),
+                status: Some(status),
+                latency_ms: started.elapsed().as_millis() as u64,
+                body: head,
+                error: None,
+                code_ok,
+                cdn_hint,
+            }
+        }
+        Err(err) => ManifestProbe {
+            provider: provider.to_string(),
+            url: url.to_string(),
+            status: None,
+            latency_ms: started.elapsed().as_millis() as u64,
+            body: String::new(),
+            error: Some(err.to_string()),
+            code_ok: false,
+            cdn_hint: None,
+        },
+    }
+}
+
+fn cdn_host_from_header(value: &str) -> Option<String> {
+    let host = value
+        .trim()
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .split('/')
+        .next()?
+        .trim();
+    if host.is_empty() {
+        None
+    } else {
+        Some(host.to_string())
+    }
+}
+
+/// Steam's download region, as stored in `config/config.vdf`
+/// (`Software/Valve/Steam/CurrentCellID`).
+fn read_cell_id(steam_dir: &Path) -> Option<u32> {
+    let text = fs::read_to_string(steam_dir.join("config").join("config.vdf")).ok()?;
+    let key = "\"CurrentCellID\"";
+    let index = text.find(key)?;
+    let rest = &text[index + key.len()..];
+    rest.split('"')
+        .find(|part| !part.trim().is_empty())?
+        .trim()
+        .parse()
+        .ok()
+}
+
+fn parse_cdn_hosts(body: &str) -> Vec<(String, Option<u32>)> {
+    let Ok(value) = serde_json::from_str::<Value>(body) else {
+        return Vec::new();
+    };
+    let Some(servers) = value
+        .get("response")
+        .and_then(|item| item.get("servers"))
+        .and_then(Value::as_array)
+    else {
+        return Vec::new();
+    };
+    let mut hosts: Vec<(String, Option<u32>)> = Vec::new();
+    for server in servers {
+        if server.get("type").and_then(Value::as_str) != Some("SteamCache") {
+            continue;
+        }
+        if server.get("https_support").and_then(Value::as_str) == Some("none") {
+            continue;
+        }
+        let Some(host) = server.get("host").and_then(Value::as_str) else {
+            continue;
+        };
+        if host.ends_with(".steamcontent.com") && !hosts.iter().any(|item| item.0 == host) {
+            let cell = server
+                .get("cell_id")
+                .and_then(Value::as_u64)
+                .and_then(|value| u32::try_from(value).ok());
+            hosts.push((host.to_string(), cell));
+        }
+        if hosts.len() >= 8 {
+            break;
+        }
+    }
+    hosts
+}
+
+/// Same list Steam's `ContentServerDirectoryService` uses for this CellID.
+/// The WebAPI form works without a key, so the self-test can follow the
+/// configured download region instead of a hard-coded node.
+fn fetch_cdn_hosts(client: &reqwest::blocking::Client, cell_id: u32) -> Vec<(String, Option<u32>)> {
+    let url = format!(
+        "https://api.steampowered.com/IContentServerDirectoryService/GetServersForSteamPipe/v1/?cell_id={cell_id}&max_servers=20&format=json"
+    );
+    match client.get(&url).send() {
+        Ok(response) => response
+            .text()
+            .map(|body| parse_cdn_hosts(&body))
+            .unwrap_or_default(),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Hosts the local client actually connected to (manifest, chunks, redirects).
+/// Kept for display: mainland partner CDNs are token-gated, so the self-test
+/// cannot request manifests from them directly.
+fn recent_log_hosts(steam_dir: &Path) -> Vec<String> {
+    let Ok(text) = fs::read_to_string(steam_dir.join("logs").join("content_log.txt")) else {
+        return Vec::new();
+    };
+    let mut hosts: Vec<String> = Vec::new();
+    for line in text.lines().rev().take(4000) {
+        let Some(index) = line.find("host: ") else {
+            continue;
+        };
+        let rest = &line[index + 6..];
+        let end = rest
+            .find(|ch: char| ch == ')' || ch == ' ' || ch == ',')
+            .unwrap_or(rest.len());
+        let host = rest[..end].trim();
+        if host.is_empty() || hosts.iter().any(|item| item == host) {
+            continue;
+        }
+        hosts.push(host.to_string());
+        if hosts.len() >= 3 {
+            break;
+        }
+    }
+    hosts
+}
+
+fn cdn_host_from_log_line(line: &str) -> Option<String> {
+    let index = line.find("host: ")?;
+    let rest = &line[index + 6..];
+    let end = rest
+        .find(|ch: char| ch == ')' || ch == ' ' || ch == ',')
+        .unwrap_or(rest.len());
+    let host = rest[..end].trim();
+    if host.starts_with("cache") && host.ends_with(".steamcontent.com") {
+        Some(host.to_string())
+    } else {
+        None
+    }
+}
+
+fn recent_log_cdn_host(steam_dir: &Path) -> Option<String> {
+    let text = fs::read_to_string(steam_dir.join("logs").join("content_log.txt")).ok()?;
+    let mut fallback = None;
+    for line in text.lines().rev().take(8000) {
+        let Some(host) = cdn_host_from_log_line(line) else {
+            continue;
+        };
+        if line.contains("manifest request") {
+            return Some(host);
+        }
+        if fallback.is_none() {
+            fallback = Some(host);
+        }
+    }
+    fallback
+}
+
+pub fn probe_manifest_channel<P: AsRef<Path>>(
+    steam_dir: P,
+    appid: Option<u32>,
+) -> Result<ManifestChannelProbe> {
+    let steam_dir = validate_steam_dir(steam_dir)?;
+    let settings = load_settings_from_dir(&steam_dir)?;
+    let games = list_games_from_dir(&steam_dir)?;
+    let game = match appid {
+        Some(id) => games.iter().find(|game| game.appid == id),
+        None => games
+            .iter()
+            .find(|game| game.manifest_entries.iter().any(|entry| !entry.manifest_gid.is_empty())),
+    }
+    .ok_or_else(|| "没有可测试的 App：请先保存一个带 Manifest 条目的 G-<AppId>.lua".to_string())?;
+    let entry = game
+        .manifest_entries
+        .iter()
+        .find(|entry| !entry.manifest_gid.trim().is_empty())
+        .ok_or_else(|| format!("G-{}.lua 没有 Manifest 条目", game.appid))?;
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()
+        .map_err(|err| err.to_string())?;
+
+    let mut providers = Vec::new();
+    let endpoint = settings.manifest_lua_endpoint.trim();
+    if !endpoint.is_empty() {
+        let prefix = if endpoint.ends_with('/') {
+            endpoint.to_string()
+        } else {
+            format!("{endpoint}/")
+        };
+        let url = provider_url(&prefix, &entry.manifest_gid);
+        providers.push(probe_provider(&client, "self", &url, None));
+    }
+    let dex_url = provider_url(MANIFEST_DEX_PREFIX, &entry.manifest_gid);
+    providers.push(probe_provider(&client, "manifestdex", &dex_url, Some(MANIFEST_DEX_UA)));
+    for (name, prefix) in LEGACY_MANIFEST_PROVIDERS {
+        let url = provider_url(prefix, &entry.manifest_gid);
+        providers.push(probe_provider(&client, name, &url, None));
+    }
+
+    // Prefer a freshly fetched code, then the built-in ManifestDeX endpoint.
+    let chosen = providers
+        .iter()
+        .find(|probe| probe.code_ok && probe.provider == "self")
+        .or_else(|| providers.iter().find(|probe| probe.code_ok && probe.provider == "manifestdex"))
+        .cloned();
+
+    let mut download = None;
+    let cell_id = read_cell_id(&steam_dir);
+    let steam_hosts = recent_log_hosts(&steam_dir);
+    if let Some(probe) = chosen {
+        let code = probe.body.trim().to_string();
+        let mut candidates: Vec<(String, &'static str, Option<u32>)> = Vec::new();
+        if let Some(cell) = cell_id {
+            for (host, host_cell) in fetch_cdn_hosts(&client, cell) {
+                candidates.push((host, "steam-cell", host_cell));
+            }
+        }
+        if let Some(host) = recent_log_cdn_host(&steam_dir) {
+            candidates.push((host, "steam-log", None));
+        }
+        if let Some(host) = probe.cdn_hint.as_deref().and_then(cdn_host_from_header) {
+            candidates.push((host, "provider-hint", None));
+        }
+        candidates.push(("cache9-tyo3.steamcontent.com".to_string(), "default", None));
+
+        let mut tried: Vec<String> = Vec::new();
+        for (cdn_host, source, cdn_cell) in candidates {
+            if tried.iter().any(|item| item == &cdn_host) {
+                continue;
+            }
+            tried.push(cdn_host.clone());
+            let url = format!(
+                "https://{cdn_host}/depot/{}/manifest/{}/5/{code}",
+                entry.depot_id, entry.manifest_gid
+            );
+            let request = client
+                .get(&url)
+                .header(reqwest::header::USER_AGENT, "Valve/Steam HTTP Client 1.0");
+            let result = match request.send() {
+                Ok(response) => {
+                    let status = response.status().as_u16();
+                    let bytes = response.bytes().map(|data| data.len() as u64).unwrap_or(0);
+                    DownloadProbe {
+                        provider: probe.provider.clone(),
+                        code: code.clone(),
+                        cdn_host: cdn_host.clone(),
+                        cdn_cell,
+                        cdn_source: source.to_string(),
+                        url,
+                        status: Some(status),
+                        bytes,
+                        error: None,
+                    }
+                }
+                Err(err) => DownloadProbe {
+                    provider: probe.provider.clone(),
+                    code: code.clone(),
+                    cdn_host: cdn_host.clone(),
+                    cdn_cell,
+                    cdn_source: source.to_string(),
+                    url,
+                    status: None,
+                    bytes: 0,
+                    error: Some(err.to_string()),
+                },
+            };
+            let ok = result.status == Some(200);
+            download = Some(result);
+            // Steam normally answers from the first healthy cache; keep a few
+            // fallbacks for stale nodes but do not walk the whole list.
+            if ok || tried.len() >= 4 {
+                break;
+            }
+        }
+    }
+
+    Ok(ManifestChannelProbe {
+        appid: game.appid,
+        game_name: game.name.clone(),
+        depot_id: entry.depot_id,
+        manifest_gid: entry.manifest_gid.clone(),
+        cell_id,
+        steam_hosts,
+        providers,
+        download,
+    })
+}
+
 pub fn upsert_game_in_dir<P: AsRef<Path>>(steam_dir: P, game: &GameConfig) -> Result<()> {
     let steam_dir = validate_steam_dir(steam_dir)?;
     let lua_dir = lua_dir(&steam_dir);
@@ -488,6 +1082,53 @@ pub fn import_lua_file_from_path<P: AsRef<Path>, Q: AsRef<Path>>(
     game.enabled = true;
     upsert_game_in_dir(&steam_dir, &game)?;
     Ok(game)
+}
+
+/// 单个文件导入失败的记录：该文件不合法时其余文件继续导入。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ImportFailure {
+    pub file_name: String,
+    pub path: String,
+    pub error: String,
+}
+
+/// 批量导入结果。`failed` 为空表示全部成功；两份都为空表示没有选中任何文件。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ImportReport {
+    pub imported: Vec<GameConfig>,
+    pub failed: Vec<ImportFailure>,
+}
+
+impl ImportReport {
+    pub fn is_empty(&self) -> bool {
+        self.imported.is_empty() && self.failed.is_empty()
+    }
+}
+
+/// 批量导入：逐个解析并写入 Lua 目录，单个文件出错只记录失败，不影响其余文件。
+pub fn import_lua_files_from_paths<P: AsRef<Path>, Q: AsRef<Path>>(
+    steam_dir: P,
+    source_paths: &[Q],
+) -> Result<ImportReport> {
+    let steam_dir = validate_steam_dir(steam_dir)?;
+    let mut imported = Vec::new();
+    let mut failed = Vec::new();
+    for source_path in source_paths {
+        let source_path = source_path.as_ref();
+        match import_lua_file_from_path(&steam_dir, source_path) {
+            Ok(game) => imported.push(game),
+            Err(error) => failed.push(ImportFailure {
+                file_name: source_path
+                    .file_name()
+                    .and_then(OsStr::to_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                path: display_path(source_path),
+                error,
+            }),
+        }
+    }
+    Ok(ImportReport { imported, failed })
 }
 
 pub fn open_lua_dir_for_steam<P: AsRef<Path>>(steam_dir: P) -> Result<()> {
@@ -739,13 +1380,303 @@ pub fn discover_depots_from_steam<P: AsRef<Path>>(
             config_depots.and_then(|items| depot_key_from_config(items, depot.depot_id));
     }
 
+    // DLC content depots for DLC the account holds come from packageinfo.vdf;
+    // the file is optional and its absence only costs that fallback.
+    let package_path = steam_dir.join("appcache").join("packageinfo.vdf");
+    let package_data = fs::read(&package_path).ok();
+    let packages = package_data.as_deref().and_then(|data| {
+        steam_vdf_parser::parse_packageinfo_with(data, steam_vdf_parser::ParseOptions::default())
+            .ok()
+    });
+    // Some builds ship no `extended.listofdlc` (new or partially cached apps),
+    // so enumeration also scans appinfo for entries whose parent is this App.
+    let dlc_ids = appinfo
+        .as_obj()
+        .map(|root| dlc_appids_from_appinfo(root, appid, app_object))
+        .unwrap_or_default();
+    let package_depots = packages
+        .as_ref()
+        .and_then(|document| document.as_obj())
+        .map(|root| dlc_depots_from_packages(root, &dlc_ids))
+        .unwrap_or_default();
+
+    let dlc = appinfo
+        .as_obj()
+        .map(|root| {
+            dlc_metadata_from_appinfo(root, app_object, &dlc_ids, config_depots, &package_depots)
+        })
+        .unwrap_or_default();
+
     Ok(DepotDiscovery {
         appid,
         name: name.unwrap_or_else(|| format!("App {appid}")),
         depots,
+        dlc,
         app_source: "appcache/appinfo.vdf".into(),
         config_found: config_depots.is_some(),
     })
+}
+
+/// Labels every AppId / DepotId of `appid` with the part of the game it belongs
+/// to. A saved `G-<AppId>.lua` only stores flat `addappid` rows, so the editor
+/// calls this to show 「主内容 / DLC」 next to each row without re-running the
+/// whole discovery flow.
+pub fn depot_ownership_from_steam<P: AsRef<Path>>(
+    steam_dir: P,
+    appid: u32,
+) -> Result<Vec<DepotOwnership>> {
+    let discovery = discover_depots_from_steam(steam_dir, appid)?;
+    Ok(ownership_rows(&discovery))
+}
+
+fn ownership_rows(discovery: &DepotDiscovery) -> Vec<DepotOwnership> {
+    // 同一个 Depot 可能同时出现在主内容与 DLC 列表里；DLC 更具体，覆盖主内容。
+    let mut by_appid: BTreeMap<u32, DepotOwnership> = BTreeMap::new();
+    let base = |appid: u32| DepotOwnership {
+        appid,
+        group: "base".into(),
+        dlc_appid: None,
+        dlc_name: None,
+    };
+    by_appid.insert(discovery.appid, base(discovery.appid));
+    for depot in &discovery.depots {
+        by_appid.insert(depot.depot_id, base(depot.depot_id));
+    }
+    for dlc in &discovery.dlc {
+        by_appid.insert(
+            dlc.appid,
+            DepotOwnership {
+                appid: dlc.appid,
+                group: "dlc".into(),
+                dlc_appid: Some(dlc.appid),
+                dlc_name: dlc.name.clone(),
+            },
+        );
+        for depot in &dlc.depots {
+            by_appid.insert(
+                depot.depot_id,
+                DepotOwnership {
+                    appid: depot.depot_id,
+                    group: "dlc".into(),
+                    dlc_appid: Some(dlc.appid),
+                    dlc_name: dlc.name.clone(),
+                },
+            );
+        }
+    }
+    by_appid.into_values().collect()
+}
+
+/// `appinfo.vdf` entries wrap their payload in an `appinfo` object; a few
+/// appids (and the unit-test fixtures) store it inline.
+fn appinfo_payload<'a, 'text>(app_object: &'a VdfObject<'text>) -> &'a VdfObject<'text> {
+    app_object
+        .get("appinfo")
+        .and_then(|value| value.as_obj())
+        .unwrap_or(app_object)
+}
+
+/// Reads a numeric field addressed by `path` from a parsed VDF object.
+fn u32_at(obj: &VdfObject<'_>, path: &[&str]) -> Option<u32> {
+    let (last, keys) = path.split_last()?;
+    let mut current = obj;
+    for key in keys {
+        current = current.get(key).and_then(|value| value.as_obj())?;
+    }
+    current
+        .get(last)
+        .and_then(vdf_decimal_string)
+        .and_then(|text| text.trim().parse::<u32>().ok())
+}
+
+/// DLC AppIds for an App.
+///
+/// `appinfo.extended.listofdlc` is the primary source, but plenty of Apps ship
+/// without it (new releases, partially cached entries). Those still carry the
+/// DLC entries themselves, tagged `common.parent` / `common.type = DLC` or
+/// `extended.dlcforappid`, so the whole appinfo root is scanned as a fallback.
+fn dlc_appids_from_appinfo(
+    appinfo_root: &VdfObject<'_>,
+    appid: u32,
+    app_object: &VdfObject<'_>,
+) -> Vec<u32> {
+    let mut ids = appinfo_payload(app_object)
+        .get("extended")
+        .and_then(|value| value.as_obj())
+        .and_then(|extended| extended.get("listofdlc"))
+        .and_then(|value| value.as_str())
+        .unwrap_or_default()
+        .split(',')
+        .filter_map(|item| item.trim().parse::<u32>().ok())
+        .filter(|candidate| *candidate > 0)
+        .collect::<Vec<_>>();
+
+    for (key, value) in appinfo_root.iter() {
+        let Some(candidate) = key.parse::<u32>().ok() else {
+            continue;
+        };
+        if candidate == appid {
+            continue;
+        }
+        let Some(entry) = value.as_obj() else {
+            continue;
+        };
+        let payload = appinfo_payload(entry);
+        let parent = u32_at(payload, &["common", "parent"]);
+        let dlc_for = u32_at(payload, &["extended", "dlcforappid"]);
+        if parent == Some(appid) || dlc_for == Some(appid) {
+            ids.push(candidate);
+        }
+    }
+
+    ids.sort_unstable();
+    ids.dedup();
+    ids
+}
+
+/// Depots declared on the base App but owned by a DLC (`dlcappid`). Some games
+/// ship DLC content under the base App node instead of the DLC's own entry.
+fn dlc_depots_from_base_app(app_object: &VdfObject<'_>) -> Vec<(u32, u32)> {
+    let Some(depots) = appinfo_payload(app_object)
+        .get("depots")
+        .and_then(|value| value.as_obj())
+    else {
+        return Vec::new();
+    };
+    depots
+        .iter()
+        .filter_map(|(key, value)| {
+            let depot_id = key.parse::<u32>().ok()?;
+            let dlc_appid = value
+                .as_obj()?
+                .get("dlcappid")
+                .and_then(vdf_decimal_string)
+                .and_then(|text| text.trim().parse::<u32>().ok())?;
+            Some((depot_id, dlc_appid))
+        })
+        .collect()
+}
+
+/// Enumerates every DLC of the base App, merges the depots declared by the
+/// DLC's own `appinfo` entry, the `dlcappid` depots on the base App, and the
+/// depots of owned packages from `packageinfo.vdf`, then attaches local
+/// `config.vdf` keys. DLC whose content is already present locally
+/// (`key_found`) are returned first.
+fn dlc_metadata_from_appinfo(
+    appinfo_root: &VdfObject<'_>,
+    app_object: &VdfObject<'_>,
+    dlc_ids: &[u32],
+    config_depots: Option<&VdfObject<'_>>,
+    package_depots: &BTreeMap<u32, Vec<u32>>,
+) -> Vec<DiscoveredDlc> {
+    let base_dlc_depots = dlc_depots_from_base_app(app_object);
+    let mut items = dlc_ids
+        .iter()
+        .copied()
+        .map(|dlc_appid| {
+            let (name, mut depots) = match appinfo_root
+                .get(&dlc_appid.to_string())
+                .and_then(|value| value.as_obj())
+            {
+                Some(entry) => depot_metadata_from_appinfo(entry),
+                None => (None, Vec::new()),
+            };
+            for (depot_id, owner) in &base_dlc_depots {
+                if *owner == dlc_appid && !depots.iter().any(|depot| depot.depot_id == *depot_id) {
+                    depots.push(DiscoveredDepot {
+                        depot_id: *depot_id,
+                        depot_key: None,
+                        manifest_gid: None,
+                    });
+                }
+            }
+            // Owned DLC usually has no `appinfo` entry until Steam fetches it;
+            // the package the account holds still lists its depots.
+            if let Some(owned) = package_depots.get(&dlc_appid) {
+                for depot_id in owned {
+                    if !depots.iter().any(|depot| depot.depot_id == *depot_id) {
+                        depots.push(DiscoveredDepot {
+                            depot_id: *depot_id,
+                            depot_key: None,
+                            manifest_gid: None,
+                        });
+                    }
+                }
+            }
+            depots.sort_by_key(|depot| depot.depot_id);
+            for depot in &mut depots {
+                depot.depot_key =
+                    config_depots.and_then(|items| depot_key_from_config(items, depot.depot_id));
+            }
+            let key_found = depots.iter().any(|depot| depot.depot_key.is_some());
+            DiscoveredDlc {
+                appid: dlc_appid,
+                name,
+                depots,
+                key_found,
+            }
+        })
+        .collect::<Vec<_>>();
+    items.sort_by(|a, b| b.key_found.cmp(&a.key_found).then(a.appid.cmp(&b.appid)));
+    items
+}
+
+/// Depot ids of every owned package, keyed by the DLC AppId that package
+/// grants. `packageinfo.vdf` stores `appids` / `depotids` as index → number
+/// objects, and the payload sits under the `0` (or `appinfo`) child.
+fn dlc_depots_from_packages(
+    packages_root: &VdfObject<'_>,
+    dlc_ids: &[u32],
+) -> BTreeMap<u32, Vec<u32>> {
+    let dlc_set = dlc_ids.iter().copied().collect::<BTreeSet<_>>();
+    let mut owned: BTreeMap<u32, BTreeSet<u32>> = BTreeMap::new();
+    for (_, package) in packages_root.iter() {
+        let Some(package) = package.as_obj() else {
+            continue;
+        };
+        let payload = package
+            .get("appinfo")
+            .and_then(|value| value.as_obj())
+            .or_else(|| package.get("0").and_then(|value| value.as_obj()))
+            .unwrap_or(package);
+        let (Some(appids), Some(depotids)) = (
+            payload.get("appids").and_then(|value| value.as_obj()),
+            payload.get("depotids").and_then(|value| value.as_obj()),
+        ) else {
+            continue;
+        };
+        let granted = numeric_values(appids)
+            .into_iter()
+            .filter(|appid| dlc_set.contains(appid))
+            .collect::<Vec<_>>();
+        if granted.is_empty() {
+            continue;
+        }
+        let depots = numeric_values(depotids);
+        for appid in granted {
+            owned
+                .entry(appid)
+                .or_default()
+                .extend(depots.iter().copied());
+        }
+    }
+    owned
+        .into_iter()
+        .map(|(appid, depots)| (appid, depots.into_iter().collect()))
+        .collect()
+}
+
+/// `packageinfo.vdf` numbers are `I32`/`U64`, but a text fixture or a future
+/// build may store them as decimal strings.
+fn numeric_values(obj: &VdfObject<'_>) -> Vec<u32> {
+    obj.iter()
+        .filter_map(|(_, value)| match value {
+            VdfValue::I32(number) => u32::try_from(*number).ok(),
+            VdfValue::U64(number) => u32::try_from(*number).ok(),
+            VdfValue::Str(text) => text.trim().parse::<u32>().ok(),
+            _ => None,
+        })
+        .collect()
 }
 
 fn depot_key_from_config(config_depots: &VdfObject<'_>, depot_id: u32) -> Option<String> {
@@ -762,10 +1693,7 @@ fn depot_key_from_config(config_depots: &VdfObject<'_>, depot_id: u32) -> Option
 fn depot_metadata_from_appinfo(
     app_object: &VdfObject<'_>,
 ) -> (Option<String>, Vec<DiscoveredDepot>) {
-    let payload = app_object
-        .get("appinfo")
-        .and_then(|value| value.as_obj())
-        .unwrap_or(app_object);
+    let payload = appinfo_payload(app_object);
     let name = payload
         .get("common")
         .and_then(|value| value.as_obj())
@@ -781,6 +1709,16 @@ fn depot_metadata_from_appinfo(
         .filter_map(|(key, value)| {
             let depot_id = key.parse::<u32>().ok()?;
             let item = value.as_obj()?;
+            // 带 `dlcappid` 的 Depot 属于某个 DLC：主内容列表不收它，
+            // 由 DLC 分组单独收录，避免同一个 Depot 被同时标成主体和 DLC。
+            let owned_by_dlc = item
+                .get("dlcappid")
+                .and_then(vdf_decimal_string)
+                .and_then(|text| text.trim().parse::<u32>().ok())
+                .filter(|appid| *appid > 0);
+            if owned_by_dlc.is_some() {
+                return None;
+            }
             let manifest_gid = item
                 .get("manifests")
                 .and_then(|value| value.as_obj())
@@ -878,8 +1816,12 @@ fn validate_settings(settings: &ManagerSettings) -> Result<()> {
     if !["trace", "debug", "info", "warn", "error"].contains(&settings.log_level.as_str()) {
         return Err("Invalid log level".into());
     }
-    if !["steamrun", "wudrm"].contains(&settings.manifest_url.as_str()) {
+    if !["opensteamtool", "steamrun", "wudrm"].contains(&settings.manifest_url.as_str()) {
         return Err("Invalid manifest source".into());
+    }
+    let endpoint = settings.manifest_lua_endpoint.trim();
+    if !endpoint.is_empty() && !(endpoint.starts_with("http://") || endpoint.starts_with("https://")) {
+        return Err("Manifest endpoint must start with http:// or https://".into());
     }
     Ok(())
 }
@@ -1712,6 +2654,7 @@ mod depot_discovery_tests {
                     {
                         "124" { "manifests" { "public" { "gid" "987654321" } } }
                         "125" { "config" { "oslist" "windows" } }
+                        "126" { "dlcappid" "200" }
                         "branches" { "public" { "buildid" "1" } }
                     }
                 }
@@ -1726,6 +2669,221 @@ mod depot_discovery_tests {
         assert_eq!(depots[0].manifest_gid.as_deref(), Some("987654321"));
         assert_eq!(depots[1].depot_id, 125);
         assert_eq!(depots[1].manifest_gid, None);
+        // 126 带 dlcappid，属于 DLC，不能混进主内容
+        assert!(depots.iter().all(|depot| depot.depot_id != 126));
+    }
+
+    #[test]
+    fn dlc_metadata_lists_every_dlc_and_merges_local_keys() {
+        let document = steam_vdf_parser::parse_text(
+            r#""apps"
+            {
+                "100"
+                {
+                    "appinfo"
+                    {
+                        "common" { "name" "Base Game" }
+                        "extended" { "listofdlc" "200, 201" }
+                        "depots"
+                        {
+                            "101" { "manifests" { "public" { "gid" "111" } } }
+                            "102" { "dlcappid" "200" }
+                        }
+                    }
+                }
+                "200"
+                {
+                    "appinfo"
+                    {
+                        "common" { "name" "DLC One" }
+                        "depots" { "201" { "manifests" { "public" { "gid" "222" } } } }
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+        let root = document.as_obj().unwrap();
+        let base = root.get("100").and_then(|value| value.as_obj()).unwrap();
+        let local_key = "b".repeat(64);
+        let config_text = format!(
+            r#""depots" {{ "201" {{ "DecryptionKey" "{local_key}" }} }}"#
+        );
+        let config = steam_vdf_parser::parse_text(&config_text).unwrap();
+        let config_depots = config.as_obj().unwrap();
+
+        // packageinfo.vdf 里 201 这个 DLC 所在的包带着 depot 301。
+        let packages = steam_vdf_parser::parse_text(
+            r#""packages"
+            {
+                "77"
+                {
+                    "0"
+                    {
+                        "appids" { "0" "201" }
+                        "depotids" { "0" "301" "1" "302" }
+                    }
+                }
+                "78"
+                {
+                    "0"
+                    {
+                        "appids" { "0" "999" }
+                        "depotids" { "0" "401" }
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+        let package_depots = dlc_depots_from_packages(packages.as_obj().unwrap(), &[200, 201]);
+        assert_eq!(package_depots.get(&201), Some(&vec![301, 302]));
+        assert_eq!(package_depots.get(&200), None);
+
+        let dlc_ids = dlc_appids_from_appinfo(root, 100, base);
+        assert_eq!(dlc_ids, vec![200, 201]);
+        let dlc = dlc_metadata_from_appinfo(root, base, &dlc_ids, Some(config_depots), &package_depots);
+
+        assert_eq!(dlc.len(), 2);
+        // DLC with a local key sorts first.
+        assert_eq!(dlc[0].appid, 200);
+        assert_eq!(dlc[0].name.as_deref(), Some("DLC One"));
+        assert!(dlc[0].key_found);
+        // Depot 102 comes from the base App's `dlcappid`, 201 from the DLC entry.
+        assert_eq!(
+            dlc[0].depots.iter().map(|depot| depot.depot_id).collect::<Vec<_>>(),
+            vec![102, 201]
+        );
+        assert_eq!(dlc[0].depots[1].depot_key.as_deref(), Some(local_key.as_str()));
+        assert_eq!(dlc[0].depots[1].manifest_gid.as_deref(), Some("222"));
+        // DLC 201 has no appinfo entry, so its depots come from packageinfo only.
+        assert_eq!(dlc[1].appid, 201);
+        assert_eq!(
+            dlc[1].depots.iter().map(|depot| depot.depot_id).collect::<Vec<_>>(),
+            vec![301, 302]
+        );
+        assert!(!dlc[1].key_found);
+    }
+
+    #[test]
+    fn dlc_appids_falls_back_to_child_entries_when_listofdlc_is_missing() {
+        // Escape Simulator 2 / 2879840 的本地 appinfo 就没有 listofdlc，
+        // DLC 只能靠子条目的 common.parent 与 extended.dlcforappid 找到。
+        let document = steam_vdf_parser::parse_text(
+            r#""apps"
+            {
+                "2879840"
+                {
+                    "appinfo"
+                    {
+                        "common" { "name" "Escape Simulator 2" }
+                        "depots" { "2879841" { } }
+                    }
+                }
+                "4575720"
+                {
+                    "appinfo"
+                    {
+                        "common"
+                        {
+                            "name" "Escape Simulator 2: Apocalypse DLC"
+                            "type" "DLC"
+                            "parent" "2879840"
+                        }
+                    }
+                }
+                "4575721"
+                {
+                    "appinfo"
+                    {
+                        "common" { "name" "Escape Simulator 2 Soundtrack" }
+                        "extended" { "dlcforappid" "2879840" }
+                    }
+                }
+                "999"
+                {
+                    "appinfo"
+                    {
+                        "common" { "name" "Unrelated" "type" "DLC" "parent" "1234" }
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+        let root = document.as_obj().unwrap();
+        let base = root.get("2879840").and_then(|value| value.as_obj()).unwrap();
+
+        let ids = dlc_appids_from_appinfo(root, 2879840, base);
+        assert_eq!(ids, vec![4575720, 4575721]);
+
+        let dlc = dlc_metadata_from_appinfo(root, base, &ids, None, &BTreeMap::new());
+        assert_eq!(dlc.len(), 2);
+        let apocalypse = dlc
+            .iter()
+            .find(|item| item.appid == 4575720)
+            .expect("apocalypse dlc");
+        assert_eq!(
+            apocalypse.name.as_deref(),
+            Some("Escape Simulator 2: Apocalypse DLC")
+        );
+        assert!(!apocalypse.key_found);
+    }
+
+    #[test]
+    fn ownership_rows_split_base_and_dlc() {
+        let discovery = DepotDiscovery {
+            appid: 100,
+            name: "Fixture".into(),
+            depots: vec![
+                DiscoveredDepot {
+                    depot_id: 101,
+                    depot_key: None,
+                    manifest_gid: None,
+                },
+                DiscoveredDepot {
+                    depot_id: 102,
+                    depot_key: Some("a".repeat(64)),
+                    manifest_gid: None,
+                },
+            ],
+            dlc: vec![DiscoveredDlc {
+                appid: 200,
+                name: Some("DLC One".into()),
+                depots: vec![
+                    DiscoveredDepot {
+                        depot_id: 101,
+                        depot_key: None,
+                        manifest_gid: None,
+                    },
+                    DiscoveredDepot {
+                        depot_id: 201,
+                        depot_key: None,
+                        manifest_gid: None,
+                    },
+                ],
+                key_found: false,
+            }],
+            app_source: "test".into(),
+            config_found: true,
+        };
+
+        let rows = ownership_rows(&discovery);
+        let base = rows
+            .iter()
+            .filter(|row| row.group == "base")
+            .map(|row| row.appid)
+            .collect::<Vec<_>>();
+        let dlc = rows
+            .iter()
+            .filter(|row| row.group == "dlc")
+            .map(|row| row.appid)
+            .collect::<Vec<_>>();
+        // 101 同时出现在主内容与 DLC：DLC 覆盖主内容
+        assert_eq!(base, vec![100, 102]);
+        assert_eq!(dlc, vec![101, 200, 201]);
+        assert!(rows
+            .iter()
+            .filter(|row| row.group == "dlc")
+            .all(|row| row.dlc_appid == Some(200)
+                && row.dlc_name.as_deref() == Some("DLC One")));
     }
 
     #[test]
@@ -1746,5 +2904,188 @@ mod depot_discovery_tests {
             Some(valid_key.as_str())
         );
         assert_eq!(depot_key_from_config(depots, 125), None);
+    }
+}
+
+#[cfg(test)]
+mod manifest_lua_tests {
+    use super::*;
+
+    fn fixture_steam_dir() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("steam.exe"), b"stub").unwrap();
+        dir
+    }
+
+    #[test]
+    fn render_includes_manifestdex_and_custom_endpoint() {
+        let mut settings = ManagerSettings::default();
+        settings.manifest_lua_endpoint = "http://127.0.0.1:8787/manifest".into();
+        let lua = render_manifest_lua(&settings);
+
+        assert!(lua.starts_with(MANIFEST_LUA_SENTINEL));
+        assert!(lua.contains("manifestdex"));
+        assert!(lua.contains(MANIFEST_DEX_UA));
+        assert!(lua.contains("http://127.0.0.1:8787/manifest/"));
+        assert!(lua.contains("fetch_manifest_code_ex"));
+        assert!(lua.contains("GOST_MANIFEST_SOURCES"));
+    }
+
+    /// The DLL executes every compilable prefix as its own chunk, so a top-level
+    /// `local` is gone by the time the global fetch functions run. Guard against
+    /// regressing to that shape.
+    #[test]
+    fn render_has_no_top_level_local() {
+        let mut settings = ManagerSettings::default();
+        settings.manifest_lua_endpoint = "http://127.0.0.1:8787/manifest".into();
+        let lua = render_manifest_lua(&settings);
+
+        let offenders: Vec<&str> = lua
+            .lines()
+            .filter(|line| line.starts_with("local "))
+            .collect();
+        assert!(offenders.is_empty(), "top-level local found: {offenders:?}");
+    }
+
+    #[test]
+    fn install_and_remove_round_trip() {
+        let steam = fixture_steam_dir();
+        let settings = ManagerSettings::default();
+
+        let status = install_manifest_lua(steam.path(), &settings).unwrap();
+        assert!(status.present && status.managed && status.bytes > 0);
+        assert!(steam
+            .path()
+            .join("config")
+            .join("lua")
+            .join("manifest.lua")
+            .is_file());
+
+        let after = remove_manifest_lua(steam.path()).unwrap();
+        assert!(!after.present);
+    }
+
+    #[test]
+    fn saving_settings_writes_and_respects_managed_flag() {
+        let steam = fixture_steam_dir();
+        let settings = ManagerSettings::default();
+        save_settings_to_dir(steam.path(), &settings).unwrap();
+        assert!(manifest_lua_status(steam.path()).unwrap().managed);
+
+        let mut off = settings.clone();
+        off.manage_manifest_lua = false;
+        save_settings_to_dir(steam.path(), &off).unwrap();
+        assert!(!manifest_lua_status(steam.path()).unwrap().present);
+    }
+
+    #[test]
+    fn unmanaged_lua_file_is_never_removed() {
+        let steam = fixture_steam_dir();
+        let lua_dir = steam.path().join("config").join("lua");
+        fs::create_dir_all(&lua_dir).unwrap();
+        let path = lua_dir.join("manifest.lua");
+        fs::write(&path, b"function fetch_manifest_code(gid) return nil end\n").unwrap();
+
+        let mut settings = ManagerSettings::default();
+        settings.manage_manifest_lua = false;
+        save_settings_to_dir(steam.path(), &settings).unwrap();
+
+        assert!(path.is_file());
+        let status = manifest_lua_status(steam.path()).unwrap();
+        assert!(status.present && !status.managed);
+    }
+
+    #[test]
+    fn validation_accepts_opensteamtool_and_rejects_bad_endpoint() {
+        let mut settings = ManagerSettings::default();
+        settings.manifest_url = "opensteamtool".into();
+        assert!(validate_settings(&settings).is_ok());
+
+        settings.manifest_lua_endpoint = "ftp://nope".into();
+        assert!(validate_settings(&settings).is_err());
+    }
+}
+
+#[cfg(test)]
+mod cdn_selection_tests {
+    use super::*;
+    use std::fs;
+
+    fn fixture_steam_dir() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("steam.exe"), b"stub").unwrap();
+        dir
+    }
+
+    #[test]
+    fn reads_cell_id_from_config_vdf() {
+        let steam = fixture_steam_dir();
+        let config_dir = steam.path().join("config");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::write(
+            config_dir.join("config.vdf"),
+            "\"InstallConfigStore\"\n{\n\t\"Software\"\n\t{\n\t\t\"Valve\"\n\t\t{\n\t\t\t\"Steam\"\n\t\t\t{\n\t\t\t\t\"CurrentCellID\"\t\t\"166\"\n\t\t\t}\n\t\t}\n\t}\n}\n",
+        )
+        .unwrap();
+
+        assert_eq!(read_cell_id(steam.path()), Some(166));
+    }
+
+    #[test]
+    fn parses_steamcache_hosts_from_webapi() {
+        let body = r#"{"response":{"servers":[
+            {"type":"SteamCache","host":"cache5-hkg1.steamcontent.com","https_support":"mandatory"},
+            {"type":"SteamCache","host":"cache4-hkg1.steamcontent.com","https_support":"mandatory"},
+            {"type":"CDN","host":"dl.steam.clngaa.com","https_support":"optional"},
+            {"type":"SteamCache","host":"cache6-hkg1.steamcontent.com","https_support":"none"}
+        ]}}"#;
+
+        assert_eq!(
+            parse_cdn_hosts(body),
+            vec![
+                ("cache5-hkg1.steamcontent.com".to_string(), None),
+                ("cache4-hkg1.steamcontent.com".to_string(), None)
+            ]
+        );
+    }
+
+    #[test]
+    fn extracts_cache_host_from_content_log() {
+        let steam = fixture_steam_dir();
+        let logs = steam.path().join("logs");
+        fs::create_dir_all(&logs).unwrap();
+        fs::write(
+            logs.join("content_log.txt"),
+            concat!(
+                "[2026-10-24 00:45:27] HTTPS (SteamCache,380) - cache9-tyo3.steamcontent.com ([fdfe:dcba:9876::158]:443 / 127.0.0.1:27897, host: cache9-tyo3.steamcontent.com): Negotiated HTTP/2\n",
+                "[2026-10-24 01:49:46] HTTP (CDN,30) - dl.steam.clngaa.com (61.156.246.154:80 / 61.156.246.154:80, host: dl.steam.clngaa.com): manifest request received 200 (OK)\n"
+            ),
+        )
+        .unwrap();
+
+        assert_eq!(
+            recent_log_cdn_host(steam.path()).as_deref(),
+            Some("cache9-tyo3.steamcontent.com")
+        );
+    }
+}
+#[cfg(test)]
+mod cdn_region_tests {
+    use super::*;
+
+    #[test]
+    fn webapi_hosts_keep_their_cell_group() {
+        let body = r#"{"response":{"servers":[
+            {"type":"SteamCache","host":"cache6-hkg1.steamcontent.com","cell_id":33,"https_support":"mandatory"},
+            {"type":"SteamCache","host":"cache9-tyo3.steamcontent.com","cell_id":32,"https_support":"mandatory"}
+        ]}}"#;
+
+        assert_eq!(
+            parse_cdn_hosts(body),
+            vec![
+                ("cache6-hkg1.steamcontent.com".to_string(), Some(33)),
+                ("cache9-tyo3.steamcontent.com".to_string(), Some(32))
+            ]
+        );
     }
 }

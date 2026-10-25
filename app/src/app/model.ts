@@ -3,7 +3,7 @@ import type { BuildInspection, GameConfig, LogFile, ManagerSettings, ScanState }
 export type PageId = "overview" | "channels" | "dlls" | "games" | "logs" | "diagnostics" | "settings" | "about";
 
 /** 界面显示的版本号单一来源（与 package.json 的发布号保持同步）。 */
-export const APP_VERSION = "0.11.0";
+export const APP_VERSION = "0.13.6";
 export type ActivityState = "idle" | "loading" | "working";
 export type NoticeTone = "neutral" | "working" | "success" | "error";
 
@@ -25,7 +25,7 @@ export type AppViewState = {
 
 export const defaultSettings: ManagerSettings = {
   log_level: "info",
-  manifest_url: "wudrm",
+  manifest_url: "opensteamtool",
   timeout_resolve_ms: 5000,
   timeout_connect_ms: 5000,
   timeout_send_ms: 10000,
@@ -34,6 +34,8 @@ export const defaultSettings: ManagerSettings = {
   remote_url_template: "",
   suppress_missing_popup: false,
   pattern_mirror: "",
+  manage_manifest_lua: true,
+  manifest_lua_endpoint: "",
 };
 
 export const emptyGame: GameConfig = {

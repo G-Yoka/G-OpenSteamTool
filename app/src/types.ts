@@ -39,6 +39,55 @@ export type ManagerSettings = {
   suppress_missing_popup: boolean;
   /** Legacy `[pattern] mirror`, read-only migration source. */
   pattern_mirror: string;
+  /** Write `<Steam>/config/lua/manifest.lua` (manifest-code fallback chain). */
+  manage_manifest_lua: boolean;
+  /** Optional self-hosted manifest-code endpoint prefix. */
+  manifest_lua_endpoint: string;
+};
+
+export type ManifestLuaStatus = {
+  path: string;
+  present: boolean;
+  managed: boolean;
+  bytes: number;
+  modified_time?: number | null;
+};
+
+export type ManifestProbe = {
+  provider: string;
+  url: string;
+  status?: number | null;
+  latency_ms: number;
+  body: string;
+  error?: string | null;
+  code_ok: boolean;
+  cdn_hint?: string | null;
+};
+
+export type DownloadProbe = {
+  provider: string;
+  code: string;
+  cdn_host: string;
+  /** Steam cache group for this host (hkg1 = 33, tyo3 = 32 …). */
+  cdn_cell?: number | null;
+  /** steam-cell | steam-log | provider-hint | default */
+  cdn_source: string;
+  url: string;
+  status?: number | null;
+  bytes: number;
+  error?: string | null;
+};
+
+export type ManifestChannelProbe = {
+  appid: number;
+  game_name: string;
+  depot_id: number;
+  manifest_gid: string;
+  cell_id?: number | null;
+  /** Hosts Steam itself used most recently (may include token-gated CDNs). */
+  steam_hosts: string[];
+  providers: ManifestProbe[];
+  download?: DownloadProbe | null;
 };
 
 export type GenerateReport = {
@@ -122,6 +171,18 @@ export type ManifestEntry = {
   manifest_gid: string;
 };
 
+/** 批量导入里单个文件的失败原因；其余文件照常导入。 */
+export type ImportFailure = {
+  file_name: string;
+  path: string;
+  error: string;
+};
+
+export type ImportReport = {
+  imported: GameConfig[];
+  failed: ImportFailure[];
+};
+
 export type AppMetadata = {
   appid: number;
   name: string;
@@ -134,12 +195,28 @@ export type DiscoveredDepot = {
   manifest_gid?: string | null;
 };
 
+export type DiscoveredDlc = {
+  appid: number;
+  name?: string | null;
+  depots: DiscoveredDepot[];
+  key_found: boolean;
+};
+
 export type DepotDiscovery = {
   appid: number;
   name: string;
   depots: DiscoveredDepot[];
+  dlc: DiscoveredDlc[];
   app_source: string;
   config_found: boolean;
+};
+
+/** 已保存配置里每一行属于主内容还是某个 DLC。 */
+export type DepotOwnership = {
+  appid: number;
+  group: "base" | "dlc" | string;
+  dlc_appid?: number | null;
+  dlc_name?: string | null;
 };
 
 export type LogFile = {

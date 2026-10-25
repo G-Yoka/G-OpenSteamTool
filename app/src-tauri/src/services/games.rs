@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use crate::manager::{self, AppMetadata, DepotDiscovery, GameConfig, Result};
+use crate::manager::{
+    self, AppMetadata, DepotDiscovery, DepotOwnership, GameConfig, ImportReport, Result,
+};
 
 pub fn list(steam_dir: String) -> Result<Vec<GameConfig>> {
     manager::list_games_from_dir(steam_dir)
@@ -8,6 +10,10 @@ pub fn list(steam_dir: String) -> Result<Vec<GameConfig>> {
 
 pub fn import(steam_dir: String, path: PathBuf) -> Result<GameConfig> {
     manager::import_lua_file_from_path(steam_dir, path)
+}
+
+pub fn import_many(steam_dir: String, paths: &[PathBuf]) -> Result<ImportReport> {
+    manager::import_lua_files_from_paths(steam_dir, paths)
 }
 
 pub fn open_directory(steam_dir: String) -> Result<()> {
@@ -32,4 +38,8 @@ pub fn metadata(appid: u32) -> Result<AppMetadata> {
 
 pub fn discover_depots(steam_dir: String, appid: u32) -> Result<DepotDiscovery> {
     manager::discover_depots_from_steam(steam_dir, appid)
+}
+
+pub fn depot_ownership(steam_dir: String, appid: u32) -> Result<Vec<DepotOwnership>> {
+    manager::depot_ownership_from_steam(steam_dir, appid)
 }

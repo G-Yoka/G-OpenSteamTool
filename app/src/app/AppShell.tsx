@@ -87,7 +87,8 @@ export function AppShell({ controller }: { controller: AppController }) {
         disabled: noDir || busy, run: actions.removeDlls,
       },
       {
-        id: "import-lua", title: "导入 Lua 配置", group: "数据", icon: Play,
+        id: "import-lua", title: "导入 Lua 配置（可多选）", group: "数据", icon: Play,
+        keywords: "import lua 批量 导入",
         disabled: noDir || busy, run: () => void actions.importLua(),
       },
       {

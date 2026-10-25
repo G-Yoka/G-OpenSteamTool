@@ -2,6 +2,7 @@ use std::fs;
 
 use g_opensteamtool::manager::{
     delete_game_from_dir, detect_steam_dir_from_candidates, import_lua_file_from_path,
+    import_lua_files_from_paths,
     install_bundled_dlls, install_dlls_from_dir, list_games_from_dir, load_settings_from_dir,
     parse_steam_manifest_version, read_logs_from_dir, remove_dlls_from_dir, render_game_lua,
     resolve_dll_resource_dir_from_candidates, save_settings_to_dir, scan_state_with_assets,
@@ -67,6 +68,8 @@ fn settings_round_trip_opensteamtool_toml() {
         remote_url_template: "https://cdn.example/{channel}/{component}/{sha256}.toml".into(),
         suppress_missing_popup: true,
         pattern_mirror: String::new(),
+        manage_manifest_lua: true,
+        manifest_lua_endpoint: String::new(),
     };
 
     save_settings_to_dir(steam.path(), &settings).unwrap();
@@ -426,6 +429,42 @@ fn import_lua_file_requires_appid() {
     let error = import_lua_file_from_path(steam.path(), &source).unwrap_err();
 
     assert!(error.contains("AppId"));
+}
+
+#[test]
+fn import_lua_files_imports_every_valid_file_and_reports_the_rest() {
+    let steam = make_steam_dir();
+    let source_dir = tempfile::tempdir().unwrap();
+    let first = source_dir.path().join("a.lua");
+    let second = source_dir.path().join("b.lua");
+    let broken = source_dir.path().join("broken.lua");
+    fs::write(&first, "addappid(1962700)\n").unwrap();
+    fs::write(&second, "addappid(3892270)\n").unwrap();
+    fs::write(&broken, "-- no appid here\n").unwrap();
+
+    let report =
+        import_lua_files_from_paths(steam.path(), &[first, second, broken]).unwrap();
+
+    assert_eq!(report.imported.len(), 2);
+    let appids: Vec<u32> = report.imported.iter().map(|game| game.appid).collect();
+    assert_eq!(appids, vec![1962700, 3892270]);
+    assert_eq!(report.failed.len(), 1);
+    assert_eq!(report.failed[0].file_name, "broken.lua");
+    assert!(report.failed[0].error.contains("AppId"));
+    assert!(!report.failed[0].path.starts_with(r"\\?\"));
+    let lua_dir = steam.path().join("config").join("lua");
+    assert!(lua_dir.join("G-1962700.lua").exists());
+    assert!(lua_dir.join("G-3892270.lua").exists());
+}
+
+#[test]
+fn import_lua_files_with_no_selection_is_an_empty_report() {
+    let steam = make_steam_dir();
+    let paths: Vec<std::path::PathBuf> = Vec::new();
+
+    let report = import_lua_files_from_paths(steam.path(), &paths).unwrap();
+
+    assert!(report.is_empty());
 }
 
 #[test]

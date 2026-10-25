@@ -2,6 +2,7 @@ pub mod manager;
 pub mod services;
 
 use manager::{GameConfig, ManagerSettings};
+use std::path::PathBuf;
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 
@@ -48,25 +49,59 @@ fn save_settings(steam_dir: String, settings: ManagerSettings) -> CommandResult<
 }
 
 #[tauri::command]
+fn manifest_lua_status(steam_dir: String) -> CommandResult<manager::ManifestLuaStatus> {
+    services::settings::manifest_status(steam_dir)
+}
+
+#[tauri::command]
+fn install_manifest_lua(steam_dir: String) -> CommandResult<manager::ManifestLuaStatus> {
+    services::settings::install_manifest(steam_dir)
+}
+
+#[tauri::command]
+fn remove_manifest_lua(steam_dir: String) -> CommandResult<manager::ManifestLuaStatus> {
+    services::settings::remove_manifest(steam_dir)
+}
+
+#[tauri::command]
+async fn probe_manifest_channel(
+    steam_dir: String,
+    appid: Option<u32>,
+) -> CommandResult<manager::ManifestChannelProbe> {
+    tauri::async_runtime::spawn_blocking(move || {
+        services::settings::probe_manifest(steam_dir, appid)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
 fn list_games(steam_dir: String) -> CommandResult<Vec<GameConfig>> {
     services::games::list(steam_dir)
 }
 
 #[tauri::command]
-async fn import_lua_file(
+async fn import_lua_files(
     app: tauri::AppHandle,
     steam_dir: String,
-) -> CommandResult<Option<GameConfig>> {
-    let Some(path) = app
+) -> CommandResult<Option<manager::ImportReport>> {
+    let Some(picked) = app
         .dialog()
         .file()
         .add_filter("Lua", &["lua"])
-        .blocking_pick_file()
-        .and_then(|path| path.into_path().ok())
+        .set_title("选择要导入的 Lua 配置（可多选）")
+        .blocking_pick_files()
     else {
         return Ok(None);
     };
-    services::games::import(steam_dir, path).map(Some)
+    let paths: Vec<PathBuf> = picked
+        .into_iter()
+        .filter_map(|path| path.into_path().ok())
+        .collect();
+    if paths.is_empty() {
+        return Ok(None);
+    }
+    services::games::import_many(steam_dir, &paths).map(Some)
 }
 
 #[tauri::command]
@@ -99,6 +134,16 @@ async fn discover_depots(steam_dir: String, appid: u32) -> CommandResult<manager
     tauri::async_runtime::spawn_blocking(move || services::games::discover_depots(steam_dir, appid))
         .await
         .map_err(|err| format!("Depot discovery task failed: {err}"))?
+}
+
+#[tauri::command]
+async fn depot_ownership(
+    steam_dir: String,
+    appid: u32,
+) -> CommandResult<Vec<manager::DepotOwnership>> {
+    tauri::async_runtime::spawn_blocking(move || services::games::depot_ownership(steam_dir, appid))
+        .await
+        .map_err(|err| format!("Depot ownership task failed: {err}"))?
 }
 
 #[tauri::command]
@@ -213,14 +258,19 @@ pub fn run() {    tauri::Builder::default()
             remove_dlls,
             load_settings,
             save_settings,
+            manifest_lua_status,
+            install_manifest_lua,
+            remove_manifest_lua,
+            probe_manifest_channel,
             list_games,
-            import_lua_file,
+            import_lua_files,
             open_lua_dir,
             upsert_game,
             delete_game,
             set_game_enabled,
             fetch_app_metadata,
             discover_depots,
+            depot_ownership,
             read_logs,
             inspect_build,
             install_channel_file,

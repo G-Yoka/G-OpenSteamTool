@@ -1,4 +1,6 @@
-import type { BuildInspection, ChannelFile, GameConfig, LogFile, ManagerSettings, ScanState } from "../types";
+import type {
+  BuildInspection, ChannelFile, GameConfig, LogFile, ManagerSettings, ManifestChannelProbe, ManifestLuaStatus, ScanState,
+} from "../types";
 
 /**
  * 浏览器预览数据（仅 `npm run dev` 在没有 Tauri 运行时的环境里使用）。
@@ -88,7 +90,7 @@ export function previewBuild(steamDir = PREVIEW_STEAM_DIR): BuildInspection {
 
 export const previewSettings: ManagerSettings = {
   log_level: "info",
-  manifest_url: "wudrm",
+  manifest_url: "opensteamtool",
   timeout_resolve_ms: 5000,
   timeout_connect_ms: 5000,
   timeout_send_ms: 10000,
@@ -97,6 +99,41 @@ export const previewSettings: ManagerSettings = {
   remote_url_template: "",
   suppress_missing_popup: false,
   pattern_mirror: "",
+  manage_manifest_lua: true,
+  manifest_lua_endpoint: "",
+};
+
+export const previewManifestLua: ManifestLuaStatus = {
+  path: "D:\\Steam\\config\\lua\\manifest.lua",
+  present: true,
+  managed: true,
+  bytes: 2313,
+  modified_time: 1_792_788_000,
+};
+
+export const previewProbe: ManifestChannelProbe = {
+  appid: 730,
+  game_name: "Counter-Strike 2",
+  depot_id: 731,
+  manifest_gid: "4820981377404920371",
+  cell_id: 166,
+  steam_hosts: ["dl.steam.clngaa.com", "st.dl.eccdnx.com"],
+  providers: [
+    { provider: "manifestdex", url: "https://manifest.manifestdex.com/4820981377404920371", status: 200, latency_ms: 640, body: "9767027774221603670", error: null, code_ok: true, cdn_hint: null },
+    { provider: "opensteamtool", url: "https://manifest.opensteamtool.com/4820981377404920371", status: 403, latency_ms: 310, body: "", error: null, code_ok: false, cdn_hint: null },
+    { provider: "wudrm", url: "http://gmrc.wudrm.com/manifest/4820981377404920371", status: 502, latency_ms: 220, body: "", error: null, code_ok: false, cdn_hint: null },
+  ],
+  download: {
+    provider: "manifestdex",
+    code: "9767027774221603670",
+    cdn_host: "cache9-tyo3.steamcontent.com",
+    cdn_cell: 32,
+    cdn_source: "steam-cell",
+    url: "https://cache9-tyo3.steamcontent.com/depot/731/manifest/4820981377404920371/5/9767027774221603670",
+    status: 200,
+    bytes: 134_456,
+    error: null,
+  },
 };
 
 export function previewGames(): GameConfig[] {
