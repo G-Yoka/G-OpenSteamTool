@@ -10,3 +10,14 @@ outputs/
 /g-opensteamtool-v*.exe
 /SHA256SUMS.txt
 /backup/
+
+# 以下仅本地保留：开发文档、逐版本发布说明、测试与参考工具
+/docs/DESIGN.md
+/docs/DESIGN_QA.md
+/docs/PATTERN.md
+/docs/README.md
+/docs/README.en.md
+/docs/releases/
+/app/src-tauri/tests/
+/app/src-tauri/examples/
+/tools/pattern-tracker/
