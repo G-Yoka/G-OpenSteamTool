@@ -8,7 +8,5 @@ outputs/
 *.tmp
 *.bak
 /g-opensteamtool-v*.exe
+/SHA256SUMS.txt
 /backup/
-tools/**/__pycache__/
-tools/**/.pytest_cache/
-tools/pattern-tracker/out*/

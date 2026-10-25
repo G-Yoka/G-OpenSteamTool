@@ -21,10 +21,9 @@ use std::path::Path;
 use sha2::{Digest, Sha256};
 
 /// Rule sets are embedded at compile time: the app ships a single EXE, so it
-/// cannot read them from `tools/` at runtime.
-const RULES_STEAMUI: &str = include_str!("../../../../../tools/pattern-tracker/rules/steamui.toml");
-const RULES_STEAMCLIENT: &str =
-    include_str!("../../../../../tools/pattern-tracker/rules/steamclient.toml");
+/// cannot read them from disk at runtime.
+const RULES_STEAMUI: &str = include_str!("../../../resources/patterns/steamui.toml");
+const RULES_STEAMCLIENT: &str = include_str!("../../../resources/patterns/steamclient.toml");
 
 /// Upstream IPC schema, embedded so the `ipc` channel needs no external file.
 /// Copied verbatim from OpenSteamTool (`src/Steam/IPCMessages.steamd`, GPL-3.0);
