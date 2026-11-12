@@ -107,7 +107,7 @@ export function CommandPalette({ open, commands, onClose }: { open: boolean; com
 
 export const SHORTCUTS: Array<[string, string]> = [
   ["Ctrl K", "命令面板：跳转页面 / 触发操作"],
-  ["Ctrl 1…8", "按顺序直达左侧导航"],
+  ["Ctrl 1…9", "按顺序直达左侧导航"],
   ["Ctrl R", "刷新全部状态"],
   ["Ctrl F", "聚焦当前视图的搜索框"],
   ["Ctrl ⇧ L", "切换浅色 / 深色主题"],

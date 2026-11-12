@@ -303,7 +303,7 @@ fn find_wrapper(
     if cands.len() > 1 {
         let mut narrowed: HashSet<u32> = HashSet::new();
         for func_rva in cands.iter() {
-            let Some((begin, end)) = pe.func_at(*func_rva) else {
+            let Some((begin, end)) = pe.func_start(*func_rva) else {
                 continue;
             };
             let texts: HashSet<String> = pe.strings_in_func(begin, end, 4).into_values().collect();
@@ -331,7 +331,7 @@ fn extract(
 ) -> Result<IpcMethod, String> {
     let wrapper = find_wrapper(pe, iface_name, &method.name, method_names)?;
     let (begin, end) = pe
-        .func_at(wrapper)
+        .func_start(wrapper)
         .ok_or_else(|| format!("{iface_name}::{}: wrapper 0x{wrapper:X} has no unwind info", method.name))?;
     let body = pe
         .read(begin, (end - begin) as usize)

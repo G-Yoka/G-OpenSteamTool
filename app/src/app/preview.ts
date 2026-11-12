@@ -1,5 +1,6 @@
 import type {
   BuildInspection, ChannelFile, GameConfig, LogFile, ManagerSettings, ManifestChannelProbe, ManifestLuaStatus, ScanState,
+  WorkshopApp, WorkshopItem,
 } from "../types";
 
 /**
@@ -101,6 +102,7 @@ export const previewSettings: ManagerSettings = {
   pattern_mirror: "",
   manage_manifest_lua: true,
   manifest_lua_endpoint: "",
+  workshop_key_url: "https://api.993499094.xyz/depotkeys.json",
 };
 
 export const previewManifestLua: ManifestLuaStatus = {
@@ -135,6 +137,50 @@ export const previewProbe: ManifestChannelProbe = {
     error: null,
   },
 };
+
+export function previewWorkshopApps(): WorkshopApp[] {
+  return [
+    {
+      appid: 4348910,
+      name: "Probably Stolen",
+      workshop_depot: 4348910,
+      key_ready: true,
+      key_source: "密钥库",
+      installed_items: 1,
+      content_dir: `${PREVIEW_STEAM_DIR}\\steamapps\\workshop\\content\\4348910`,
+    },
+    {
+      appid: 1091500,
+      name: "Cyberpunk 2077",
+      workshop_depot: 1091500,
+      key_ready: true,
+      key_source: "config.vdf",
+      installed_items: 0,
+      content_dir: `${PREVIEW_STEAM_DIR}\\steamapps\\workshop\\content\\1091500`,
+    },
+  ];
+}
+
+export function previewWorkshopItem(appid: number, input: string): WorkshopItem {
+  const id = Number(input.replace(/\D/g, "")) || 3829206666;
+  return {
+    published_file_id: id,
+    appid,
+    title: "智能仓库排列｜同类成排，比原版更整齐更快",
+    workshop_depot: appid,
+    manifest_gid: "3328722726637128437",
+    size_bytes: 535007,
+    time_updated: 1793759815,
+    legacy: false,
+    key_ready: true,
+    key_source: "密钥库",
+    installed: false,
+    content_dir: `${PREVIEW_STEAM_DIR}\\steamapps\\workshop\\content\\${appid}\\${id}`,
+    mods_available: true,
+    game_mods_dir: `${PREVIEW_STEAM_DIR}\\steamapps\\common\\Probably Stolen\\Mods`,
+    notes: [],
+  };
+}
 
 export function previewGames(): GameConfig[] {
   const seed: Array<[number, string, boolean]> = [

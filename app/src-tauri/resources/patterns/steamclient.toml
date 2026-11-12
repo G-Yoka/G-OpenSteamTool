@@ -65,8 +65,9 @@ note = "the feed itself publishes both names against one RVA (same signature)"
 name = "GetOrAddAppData"
 kind = "callee"
 of = "GetAppDataFromAppInfo"
-span = 11
-note = "tiny 11-byte accessor behind the anchored app-info reader"
+span = 15
+min_callers = 5
+note = "CAppInfoCache::GetOrAddAppData: first 15-byte prologue fragment of the app-info store; the other 15-byte callee of the same anchor is CUserAppInfo::GetUserComputedSection (10 callers vs 3)"
 
 [[hook]]
 name = "CUtlMemoryGrow"
@@ -128,10 +129,10 @@ note = "232-byte package lookup called from CUser::CheckAppOwnership"
 
 [[hook]]
 name = "KeyValues_FindOrCreateKey"
-kind = "callee"
-of_anchor = ["Health Check: CHTTPClient not ready"]
+kind = "anchor"
+strings = ["KeyValues::FindKey( StringView ... )"]
 span = 15
-note = "15-byte KeyValues helper"
+note = "CKeyValues::FindKey(StringView): 15-byte prologue fragment of the chained function; the assert literal is also in the 1021-byte folded KeyValues blob"
 
 [[hook]]
 name = "KeyValues_ReadAsBinary"
@@ -156,17 +157,16 @@ note = "159-byte EMsg name mapper used by the message router"
 
 [[hook]]
 name = "ProcessPendingLicenseUpdates"
-kind = "callee"
-of_anchor = ["User().RunFrame()"]
-span = 20
-note = "20-byte license pass called from the user frame step"
+kind = "anchor"
+strings = ["BCheckUserLicensesUpdate - package/app info walk"]
+note = "CUser::BCheckUserLicensesUpdate: the license pass invoked from User().RunFrame(); the function is no longer split into a 20-byte prologue fragment"
 
 [[hook]]
 name = "SendCallbackToPipe"
 kind = "callee"
 of_anchor = ["m_mapHServerPipes.Element(i) > 0"]
-span = 76
-note = "76-byte callback sender"
+span = 96
+note = "96-byte callback sender; the prologue is larger than the previous build's 76-byte fragment"
 
 [[hook]]
 name = "GetPipeClient"

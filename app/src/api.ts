@@ -1,11 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AppMetadata, BuildInspection, ChannelFile, CrashDump, DepotDiscovery, DepotOwnership, GameConfig, GenerateReport, ImportReport, LogFile,
-  ManagerSettings, ManifestChannelProbe, ManifestLuaStatus, ScanState,
+  ManagerSettings, ManifestChannelProbe, ManifestLuaStatus, ScanState, WorkshopApp, WorkshopDownloadReport, WorkshopItem, WorkshopProgress,
 } from "./types";
 import {
   PREVIEW_STEAM_DIR, previewBuild, previewGames, previewLogs, previewManifestLua, previewProbe, previewScan, previewSettings,
+  previewWorkshopApps, previewWorkshopItem,
 } from "./app/preview";
 
 const hasTauri = () => "__TAURI_INTERNALS__" in window;
@@ -69,6 +71,35 @@ export async function probeManifestChannel(steamDir: string, appid?: number | nu
 export async function listGames(steamDir: string): Promise<GameConfig[]> {
   if (!hasTauri()) return previewGames();
   return invoke<GameConfig[]>("list_games", { steamDir });
+}
+
+export async function workshopApps(steamDir: string): Promise<WorkshopApp[]> {
+  if (!hasTauri()) return previewWorkshopApps();
+  return invoke<WorkshopApp[]>("workshop_apps", { steamDir });
+}
+
+export async function resolveWorkshopItem(steamDir: string, appid: number | null, item: string): Promise<WorkshopItem> {
+  if (!hasTauri()) return previewWorkshopItem(appid ?? 4348910, item);
+  return invoke<WorkshopItem>("resolve_workshop_item", { steamDir, appid, item });
+}
+
+export async function downloadWorkshopItem(
+  steamDir: string, appid: number | null, item: string, depotKey?: string | null, installMods = true,
+): Promise<WorkshopDownloadReport> {
+  if (!hasTauri()) throw new Error("浏览器预览不能执行下载；请在桌面端运行。");
+  return invoke<WorkshopDownloadReport>("download_workshop_item", {
+    steamDir, appid, item, depotKey: depotKey?.trim() || null, installMods,
+  });
+}
+
+export async function refreshWorkshopKeys(steamDir: string): Promise<number> {
+  if (!hasTauri()) return 0;
+  return invoke<number>("refresh_workshop_keys", { steamDir });
+}
+
+export async function onWorkshopProgress(handler: (progress: WorkshopProgress) => void): Promise<UnlistenFn> {
+  if (!hasTauri()) return () => undefined;
+  return listen<WorkshopProgress>("workshop-progress", (event) => handler(event.payload));
 }
 
 /** 打开文件选择器（支持多选）并把选中的 Lua 一次性导入；取消返回 null。 */

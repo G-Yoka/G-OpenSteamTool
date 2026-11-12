@@ -3,13 +3,13 @@
 [![Downloads](https://img.shields.io/github/downloads/G-Yoka/G-OpenSteamTool/latest/total?label=Downloads)](https://github.com/G-Yoka/G-OpenSteamTool/releases/latest)
 [![往期下载量合计](https://img.shields.io/github/downloads/G-Yoka/G-OpenSteamTool/total?label=%E5%BE%80%E6%9C%9F%E4%B8%8B%E8%BD%BD%E9%87%8F%E5%90%88%E8%AE%A1)](https://github.com/G-Yoka/G-OpenSteamTool/releases)
 
-Windows 上的 OpenSteamTool 桌面管理器：装组件、配游戏 Lua、生成数据通道、管下载通道、看日志，全在一个窗口里完成。
+Windows 上的 OpenSteamTool 桌面管理器：装组件、配游戏 Lua、生成数据通道、管下载通道、下载创意工坊内容、看日志，全在一个窗口里完成。
 
-- 当前版本：**v0.13.6**
+- 当前版本：**v0.15.4**
 - 系统要求：Windows 10 / 11 x64
 - 下载：[GitHub Releases](https://github.com/G-Yoka/G-OpenSteamTool/releases/latest)（便携单文件，DLL 已内嵌）
 
-> 本工具只做本地管理与配置整理，不编译 OpenSteamTool 上游源码，也不会生成、猜测或联网获取账户本地不存在的 Depot Key。
+> 本工具只做本地管理与配置整理，不编译 OpenSteamTool 上游源码，也不会生成或猜测 Depot Key。创意工坊下载在本地缺 Key 时可选使用公开密钥库补工坊 Depot（可在设置里留空 `[workshop] key_url` 关闭）。
 
 ## 界面预览
 
@@ -36,6 +36,15 @@ Windows 上的 OpenSteamTool 桌面管理器：装组件、配游戏 Lua、生�
 - DLC 一并处理：自动列出该游戏的 DLC，标出哪些本地已有内容，勾选即写入。
 - 已保存的配置按「主体 / DLC」分组显示，长列表也能一眼分清归属。
 - 重新获取只补空、不覆盖：手里已有的 Key、Manifest 不会被清掉。
+- 自动识别 `workshopdepot`：有创意工坊的游戏会补上工坊 Depot 行，避免 Lua 漏 Key 导致 Steam 工坊下载报加密。
+
+**创意工坊**
+
+- 独立的「创意工坊」页：粘贴工坊链接或物品 ID，解析 App / 工坊 Depot / Manifest 后直接下载到 `steamapps/workshop/content/<AppId>/<物品ID>`，绕开 Steam 的加密下载队列。
+- Key 优先读当前 Lua、`config.vdf` 和工具缓存；本地没有时可从可配置的密钥库补工坊 Depot Key，也可在下载面板手动填。
+- 自动写入 / 更新 `appworkshop_<AppId>.acf`，重启 Steam 或重新启动游戏即可识别；支持新版 SteamPipe 物品与旧版 UGC 物品。
+- 可选「同时安装到游戏 Mods 文件夹」：读取 `manifest.xml` 的 `Assembly` / `ID` 生成 `Mods/<模组名>`，适配游戏自带模组菜单只扫描本地 `Mods` 的情况。
+- 下载页显示分块进度、当前文件、文件数、总字节与最终目录。
 
 **通道与下载**
 
@@ -50,7 +59,7 @@ Windows 上的 OpenSteamTool 桌面管理器：装组件、配游戏 Lua、生�
 
 **操作**
 
-- `Ctrl K` 命令面板；`Ctrl 1…8` 切换页面；`Ctrl R` 刷新；`Ctrl F` 搜索；`Ctrl ⇧ L` 切换主题；`?` 查看快捷键。
+- `Ctrl K` 命令面板；`Ctrl 1…9` 切换页面；`Ctrl R` 刷新；`Ctrl F` 搜索；`Ctrl ⇧ L` 切换主题；`?` 查看快捷键。
 
 ## 下载与安装
 
@@ -73,7 +82,8 @@ Get-Content .\SHA256SUMS.txt
 2. 点「一键初始化」。
 3. 打开「游戏配置」，输入游戏 App ID，点「本地自动获取」。
 4. 在「主内容 / DLC」里核对条目，勾选要启用的 DLC，保存。
-5. 重启 Steam 生效。
+5. 有创意工坊的游戏，到「创意工坊」页粘贴物品链接下载；Key 缺失时按页面提示补全。游戏内模组菜单只认 `Mods` 的话，保持「同时安装到游戏 Mods 文件夹」开启。
+6. 重启 Steam 生效。
 
 以后 Steam 大版本更新，只需要到「数据通道」点一次「全部生成」，再重启 Steam。
 
@@ -95,13 +105,13 @@ Key 属于 DLC 的**内容 Depot 行**（例如 `4575721`），不在 DLC 的 Ap
 先到「数据通道」点「全部生成」，重启 Steam。下载报「无互联网连接」见[这份排查说明](docs/NO_INTERNET.md)。
 
 **工具会联网上传我的配置吗？**
-不会。Depot Key 只在本地读取和写入，不写日志、不上传；工具本身没有应用内更新或遥测。
+不会。游戏本体用的 Depot Key 只在本地读取和写入，不写日志、不上传；工具本身没有应用内更新或遥测。只有在你主动下载创意工坊内容且本地缺少 Key 时，才会按设置里的 `[workshop] key_url` 查询一次公开密钥库（可留空禁用）。
 
 ## 使用边界
 
-- 只操作自己安装的组件与 `G-*.lua` / `G-*.lua.disabled`，不改动其他文件。
+- 只操作自己安装的组件与 `G-*.lua` / `G-*.lua.disabled`；创意工坊下载会写入 `steamapps/workshop/content` 与 `appworkshop_<AppId>.acf`，删除 / 覆盖前会先备份或清理临时目录。
 - 所有写入采用临时文件 + 回滚，避免中途失败留下半截文件。
-- 不提供 Depot Key 的生成或联网获取；本地没有就是没有。
+- 不生成、不猜测 Depot Key；游戏本体的 Key 只从本地读取。创意工坊页在本地缺 Key 时可选用联网密钥库（`[workshop] key_url`，留空即禁用），只用于补齐工坊 Depot。
 - 使用前请确认符合所在地区法律与 Steam 协议，配置与结果由使用者自行负责。
 
 ## 从源码构建
@@ -137,6 +147,7 @@ G-OpenSteamTool/
 
 - [安装、升级与卸载](docs/INSTALL.md)
 - [版本更新记录](docs/CHANGELOG.md)
+- [创意工坊下载说明](docs/WORKSHOP.md)
 - [「无互联网连接」排查](docs/NO_INTERNET.md)
 
 ## 说明

@@ -139,7 +139,7 @@ impl<'a> Resolver<'a> {
             for rva in rvas {
                 if let Some(sites) = self.pe.lea_xrefs().get(&rva) {
                     for site in sites {
-                        if let Some((begin, _)) = self.pe.func_of(*site) {
+                        if let Some((begin, _)) = self.pe.func_start(*site) {
                             funcs.insert(begin);
                         }
                     }
@@ -294,7 +294,13 @@ impl<'a> Resolver<'a> {
                 if hook.strings.is_empty() {
                     return Err(format!("{}: anchor rule needs strings", hook.name));
                 }
-                let cands = self.funcs_for_strings(&hook.strings)?;
+                let mut cands = self.funcs_for_strings(&hook.strings)?;
+                if let Some(span) = hook.span {
+                    cands = cands
+                        .into_iter()
+                        .filter(|c| self.span_of(*c) == Some(span))
+                        .collect();
+                }
                 if cands.len() != 1 {
                     return Err(format!(
                         "{}: anchor matched {} functions",
@@ -302,10 +308,14 @@ impl<'a> Resolver<'a> {
                         cands.len()
                     ));
                 }
+                let mut extra = String::new();
+                if let Some(span) = hook.span {
+                    extra.push_str(&format!(" span={span}"));
+                }
                 Ok(Resolved {
                     name: hook.name.clone(),
                     rva: *cands.iter().next().unwrap(),
-                    via: format!("anchor {:?}", hook.strings[0]),
+                    via: format!("anchor {:?}{extra}", hook.strings[0]),
                 })
             }
             kind @ ("callers" | "callee") => {

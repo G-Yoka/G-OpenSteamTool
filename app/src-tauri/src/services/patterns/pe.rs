@@ -54,6 +54,8 @@ pub struct Pe {
     call: HashMap<u32, Vec<u32>>,
     call_sites: Vec<(u32, u32)>,
     funcs: Vec<(u32, u32)>,
+    /// `RUNTIME_FUNCTION.UnwindData` per `funcs` entry, same order.
+    unwind: Vec<u32>,
     func_starts: Vec<u32>,
 }
 
@@ -136,6 +138,7 @@ impl Pe {
             call: HashMap::new(),
             call_sites: Vec::new(),
             funcs: Vec::new(),
+            unwind: Vec::new(),
             func_starts: Vec::new(),
         };
         pe.build_lea();
@@ -407,7 +410,7 @@ impl Pe {
             Err(_) => return Ok(()),
         };
         let count = (pdata.raw_size / 12) as usize;
-        let mut rows: Vec<(u32, u32)> = Vec::with_capacity(count);
+        let mut rows: Vec<(u32, u32, u32)> = Vec::with_capacity(count);
         for i in 0..count {
             let at = pdata.raw_ptr as usize + i * 12;
             if at + 12 > self.blob.len() {
@@ -415,18 +418,22 @@ impl Pe {
             }
             let begin = rd_u32(&self.blob, at);
             let end = rd_u32(&self.blob, at + 4);
+            let unwind = rd_u32(&self.blob, at + 8);
             if begin == 0 || end <= begin {
                 continue;
             }
-            rows.push((begin, end));
+            rows.push((begin, end, unwind));
         }
         rows.sort_unstable();
         self.func_starts = rows.iter().map(|r| r.0).collect();
-        self.funcs = rows;
+        self.unwind = rows.iter().map(|r| r.2).collect();
+        self.funcs = rows.into_iter().map(|r| (r.0, r.1)).collect();
         Ok(())
     }
 
-    pub fn func_of(&self, rva: u32) -> Option<(u32, u32)> {
+    /// Index of the `.pdata` entry covering `rva`, scanning back a few entries
+    /// because chained fragments may overlap.
+    fn func_index(&self, rva: u32) -> Option<usize> {
         if self.funcs.is_empty() {
             return None;
         }
@@ -439,11 +446,15 @@ impl Pe {
         while j >= stop {
             let (begin, end) = self.funcs[j as usize];
             if begin <= rva && rva < end {
-                return Some((begin, end));
+                return Some(j as usize);
             }
             j -= 1;
         }
         None
+    }
+
+    pub fn func_of(&self, rva: u32) -> Option<(u32, u32)> {
+        self.func_index(rva).map(|i| self.funcs[i])
     }
 
     pub fn func_at(&self, rva: u32) -> Option<(u32, u32)> {
@@ -451,6 +462,54 @@ impl Pe {
             Ok(pos) => Some(self.funcs[pos]),
             Err(_) => None,
         }
+    }
+
+    /// Full extent of the function containing `rva`.
+    ///
+    /// MSVC splits some functions into a prologue fragment plus chained body
+    /// fragments (`UNW_FLAG_CHAININFO`). Anchors found by literal live in the
+    /// body; hooking must use the first fragment's RVA and call-graph scans
+    /// need every fragment, so walk the chain in both directions.
+    pub fn func_start(&self, rva: u32) -> Option<(u32, u32)> {
+        let mut i = self.func_index(rva)?;
+        let (mut begin, mut end) = self.funcs[i];
+        for _ in 0..8 {
+            let unwind = *self.unwind.get(i)?;
+            if unwind == 0 {
+                break;
+            }
+            let flags = *self.read(unwind, 1).ok()?.first()? >> 3;
+            if flags & 0x4 == 0 {
+                break;
+            }
+            let Some((prev_begin, prev_end)) = i.checked_sub(1).map(|p| self.funcs[p]) else {
+                break;
+            };
+            if prev_end != begin {
+                break;
+            }
+            begin = prev_begin;
+            i -= 1;
+        }
+        for _ in 0..8 {
+            let Some((next_begin, next_end)) = self.funcs.get(i + 1).copied() else {
+                break;
+            };
+            if next_begin != end {
+                break;
+            }
+            let unwind = *self.unwind.get(i + 1)?;
+            if unwind == 0 {
+                break;
+            }
+            let flags = *self.read(unwind, 1).ok()?.first()? >> 3;
+            if flags & 0x4 == 0 {
+                break;
+            }
+            end = next_end;
+            i += 1;
+        }
+        Some((begin, end))
     }
 
     pub fn strings_in_func(&self, begin: u32, end: u32, min_len: usize) -> HashMap<u32, String> {
@@ -472,7 +531,7 @@ impl Pe {
         let mut out: Vec<u32> = Vec::new();
         if let Some(sites) = self.lea.get(&rva) {
             for site in sites {
-                if let Some((begin, _)) = self.func_of(*site) {
+                if let Some((begin, _)) = self.func_start(*site) {
                     out.push(begin);
                 }
             }
@@ -486,7 +545,7 @@ impl Pe {
         let mut out: Vec<u32> = Vec::new();
         if let Some(sites) = self.call.get(&func_rva) {
             for site in sites {
-                if let Some((begin, _)) = self.func_of(*site) {
+                if let Some((begin, _)) = self.func_start(*site) {
                     out.push(begin);
                 }
             }
@@ -497,7 +556,7 @@ impl Pe {
     }
 
     pub fn callees_of(&self, func_rva: u32) -> Vec<u32> {
-        let (begin, end) = match self.func_at(func_rva) {
+        let (begin, end) = match self.func_start(func_rva) {
             Some(v) => v,
             None => return Vec::new(),
         };

@@ -11,3 +11,4 @@ pub mod logs;
 pub mod patterns;
 pub mod settings;
 pub mod steam;
+pub mod workshop;

@@ -70,6 +70,14 @@ pub struct ManagerSettings {
     /// `http://127.0.0.1:8787/manifest/`). The gid is appended verbatim.
     #[serde(default)]
     pub manifest_lua_endpoint: String,
+    /// Depot-key database used only when a workshop item is downloaded and the
+    /// key is not present in the Lua/config.vdf/cache. Empty disables lookup.
+    #[serde(default = "default_workshop_key_url")]
+    pub workshop_key_url: String,
+}
+
+fn default_workshop_key_url() -> String {
+    "https://api.993499094.xyz/depotkeys.json".into()
 }
 
 impl Default for ManagerSettings {
@@ -87,6 +95,7 @@ impl Default for ManagerSettings {
             pattern_mirror: String::new(),
             manage_manifest_lua: true,
             manifest_lua_endpoint: String::new(),
+            workshop_key_url: default_workshop_key_url(),
         }
     }
 }
@@ -400,6 +409,11 @@ pub fn load_settings_from_dir<P: AsRef<Path>>(steam_dir: P) -> Result<ManagerSet
             settings.manifest_lua_endpoint = endpoint.to_string();
         }
     }
+    if let Some(workshop) = value.get("workshop").and_then(|v| v.as_table()) {
+        if let Some(url) = workshop.get("key_url").and_then(|v| v.as_str()) {
+            settings.workshop_key_url = url.to_string();
+        }
+    }
     if settings.remote_url_template.trim().is_empty() {
         let legacy = settings.pattern_mirror.trim().trim_end_matches('/');
         if !legacy.is_empty() {
@@ -457,6 +471,10 @@ pub fn save_settings_to_dir<P: AsRef<Path>>(
         "\n[manager]\nmanage_manifest_lua = {}\nmanifest_lua_endpoint = \"{}\"\n",
         settings.manage_manifest_lua,
         escape_toml(&settings.manifest_lua_endpoint)
+    ));
+    text.push_str(&format!(
+        "\n[workshop]\nkey_url = \"{}\"\n",
+        escape_toml(&settings.workshop_key_url)
     ));
     safe_replace_file(&steam_dir.join("opensteamtool.toml"), text.as_bytes())?;
     // The DLL only knows three provider names and all of them are dead; the
@@ -794,7 +812,7 @@ fn cdn_host_from_header(value: &str) -> Option<String> {
 
 /// Steam's download region, as stored in `config/config.vdf`
 /// (`Software/Valve/Steam/CurrentCellID`).
-fn read_cell_id(steam_dir: &Path) -> Option<u32> {
+pub(crate) fn read_cell_id(steam_dir: &Path) -> Option<u32> {
     let text = fs::read_to_string(steam_dir.join("config").join("config.vdf")).ok()?;
     let key = "\"CurrentCellID\"";
     let index = text.find(key)?;
@@ -845,7 +863,7 @@ fn parse_cdn_hosts(body: &str) -> Vec<(String, Option<u32>)> {
 /// Same list Steam's `ContentServerDirectoryService` uses for this CellID.
 /// The WebAPI form works without a key, so the self-test can follow the
 /// configured download region instead of a hard-coded node.
-fn fetch_cdn_hosts(client: &reqwest::blocking::Client, cell_id: u32) -> Vec<(String, Option<u32>)> {
+pub(crate) fn fetch_cdn_hosts(client: &reqwest::blocking::Client, cell_id: u32) -> Vec<(String, Option<u32>)> {
     let url = format!(
         "https://api.steampowered.com/IContentServerDirectoryService/GetServersForSteamPipe/v1/?cell_id={cell_id}&max_servers=20&format=json"
     );
@@ -900,7 +918,7 @@ fn cdn_host_from_log_line(line: &str) -> Option<String> {
     }
 }
 
-fn recent_log_cdn_host(steam_dir: &Path) -> Option<String> {
+pub(crate) fn recent_log_cdn_host(steam_dir: &Path) -> Option<String> {
     let text = fs::read_to_string(steam_dir.join("logs").join("content_log.txt")).ok()?;
     let mut fallback = None;
     for line in text.lines().rev().take(8000) {
@@ -1360,11 +1378,6 @@ pub fn discover_depots_from_steam<P: AsRef<Path>>(
             format!("appinfo.vdf 中没有 AppId {appid}，请先在 Steam 中打开该游戏页面")
         })?;
     let (name, mut depots) = depot_metadata_from_appinfo(app_object);
-    if depots.is_empty() {
-        return Err(format!(
-            "appinfo.vdf 中没有找到 AppId {appid} 的 Depot 信息"
-        ));
-    }
 
     let config_path = steam_dir.join("config").join("config.vdf");
     let config_text = fs::read_to_string(&config_path).ok();
@@ -1378,6 +1391,38 @@ pub fn discover_depots_from_steam<P: AsRef<Path>>(
     for depot in &mut depots {
         depot.depot_key =
             config_depots.and_then(|items| depot_key_from_config(items, depot.depot_id));
+    }
+    // 创意工坊内容放在单独的「工坊 Depot」里（通常等于 AppId）。它不在
+    // `depots` 的普通清单中，但正是 Lua 最常漏掉的一行；补上后 Steam
+    // 自带的工坊下载才能解密。
+    let workshop_depot = workshop_depot_from_appinfo(app_object).or_else(|| {
+        // 部分老 App 的 appinfo 里没有 `workshopdepot`，但工坊目录已经存在；
+        // Steam 的约定是工坊 Depot 默认等于 AppId。
+        let workshop_root = steam_dir.join("steamapps").join("workshop");
+        let has_acf = workshop_root
+            .join(format!("appworkshop_{appid}.acf"))
+            .exists();
+        let has_content = workshop_root
+            .join("content")
+            .join(appid.to_string())
+            .is_dir();
+        (has_acf || has_content).then_some(appid)
+    });
+    if let Some(workshop_depot) = workshop_depot {
+        if !depots.iter().any(|depot| depot.depot_id == workshop_depot) {
+            depots.push(DiscoveredDepot {
+                depot_id: workshop_depot,
+                depot_key: config_depots
+                    .and_then(|items| depot_key_from_config(items, workshop_depot)),
+                manifest_gid: None,
+            });
+            depots.sort_by_key(|depot| depot.depot_id);
+        }
+    }
+    if depots.is_empty() {
+        return Err(format!(
+            "appinfo.vdf 中没有找到 AppId {appid} 的 Depot 信息"
+        ));
     }
 
     // DLC content depots for DLC the account holds come from packageinfo.vdf;
@@ -1690,6 +1735,18 @@ fn depot_key_from_config(config_depots: &VdfObject<'_>, depot_id: u32) -> Option
         .map(ToString::to_string)
 }
 
+/// `depots.workshopdepot` 是创意工坊内容所在的 Depot ID；没有工坊时为空。
+pub(crate) fn workshop_depot_from_appinfo(app_object: &VdfObject<'_>) -> Option<u32> {
+    let payload = appinfo_payload(app_object);
+    payload
+        .get("depots")
+        .and_then(VdfValue::as_obj)
+        .and_then(|depots| depots.get("workshopdepot"))
+        .and_then(vdf_decimal_string)
+        .and_then(|text| text.trim().parse::<u32>().ok())
+        .filter(|depot| *depot > 0)
+}
+
 fn depot_metadata_from_appinfo(
     app_object: &VdfObject<'_>,
 ) -> (Option<String>, Vec<DiscoveredDepot>) {
@@ -1822,6 +1879,10 @@ fn validate_settings(settings: &ManagerSettings) -> Result<()> {
     let endpoint = settings.manifest_lua_endpoint.trim();
     if !endpoint.is_empty() && !(endpoint.starts_with("http://") || endpoint.starts_with("https://")) {
         return Err("Manifest endpoint must start with http:// or https://".into());
+    }
+    let key_url = settings.workshop_key_url.trim();
+    if !key_url.is_empty() && !(key_url.starts_with("http://") || key_url.starts_with("https://")) {
+        return Err("Workshop key URL must start with http:// or https://".into());
     }
     Ok(())
 }

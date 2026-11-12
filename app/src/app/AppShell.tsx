@@ -1,6 +1,6 @@
 import {
   Box, CircleHelp, Code2, FileText, FolderOpen, Gauge, Layers, Minus, Moon, PackagePlus, Play, Power,
-  RefreshCw, RotateCw, Save, Settings, Square, Stethoscope, Sun, Trash2, X, Keyboard,
+  Puzzle, RefreshCw, RotateCw, Save, Settings, Square, Stethoscope, Sun, Trash2, X, Keyboard,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
 import type { AppController } from "./useAppController";
@@ -16,6 +16,7 @@ import { ChannelsPage } from "../features/channels/ChannelsPage";
 import { DiagnosticsPage } from "../features/diagnostics/DiagnosticsPage";
 import { DllPage } from "../features/dlls/DllPage";
 import { GamesPage } from "../features/games/GamesPage";
+import { WorkshopPage } from "../features/workshop/WorkshopPage";
 import { LogsPage } from "../features/logs/LogsPage";
 import { OverviewPage } from "../features/overview/OverviewPage";
 import { SettingsPage } from "../features/settings/SettingsPage";
@@ -25,6 +26,7 @@ const NAV: Array<{ id: PageId; label: string; detail: string; icon: typeof Gauge
   { id: "channels", label: "数据通道", detail: "构建对应的通道数据", icon: Layers },
   { id: "dlls", label: "组件", detail: "DLL 与加载器", icon: Box },
   { id: "games", label: "游戏配置", detail: "Lua 与 Depot", icon: Code2 },
+  { id: "workshop", label: "创意工坊", detail: "工坊内容下载", icon: Puzzle },
   { id: "logs", label: "日志", detail: "运行记录与过滤", icon: FileText },
   { id: "diagnostics", label: "诊断", detail: "崩溃、缺失与隔离", icon: Stethoscope },
   { id: "settings", label: "设置", detail: "TOML 与数据源", icon: Settings },
@@ -129,7 +131,7 @@ export function AppShell({ controller }: { controller: AppController }) {
       if (mod && key === "r") { event.preventDefault(); if (state.steamDir && !busy) actions.refreshAll(); return; }
       if (mod && key === "f") { event.preventDefault(); focusSearch(); return; }
       if (mod && event.shiftKey && key === "l") { event.preventDefault(); toggleTheme(); return; }
-      if (mod && /^[1-8]$/.test(event.key)) { event.preventDefault(); const target = NAV[Number(event.key) - 1]; if (target) actions.setPage(target.id); return; }
+      if (mod && /^[1-9]$/.test(event.key)) { event.preventDefault(); const target = NAV[Number(event.key) - 1]; if (target) actions.setPage(target.id); return; }
       if (!typing && event.key === "?") { event.preventDefault(); setSheetOpen((open) => !open); }
     }
     window.addEventListener("keydown", onKeyDown);
@@ -235,6 +237,7 @@ export function AppShell({ controller }: { controller: AppController }) {
             {state.page === "channels" && <ChannelsPage controller={controller} />}
             {state.page === "dlls" && <DllPage controller={controller} />}
             {state.page === "games" && <GamesPage controller={controller} />}
+            {state.page === "workshop" && <WorkshopPage controller={controller} />}
             {state.page === "logs" && <LogsPage controller={controller} />}
             {state.page === "diagnostics" && <DiagnosticsPage controller={controller} />}
             {state.page === "settings" && <SettingsPage controller={controller} />}

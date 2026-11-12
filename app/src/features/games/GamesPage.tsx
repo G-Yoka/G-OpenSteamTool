@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Download, FileCode2, FolderOpen, Plus, Save, ScanSearch, Search, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, FileCode2, FolderOpen, Plus, Puzzle, Save, ScanSearch, Search, Trash2, X } from "lucide-react";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import type { AppController } from "../../app/useAppController";
 import { emptyGame } from "../../app/model";
@@ -209,6 +209,14 @@ export function GamesPage({ controller }: { controller: AppController }) {
         <div className="editor-head">
           <span className="file"><FileCode2 size={12} />{form.appid ? `G-${form.appid}.lua` : "新建配置"}</span>
           <span className="right">
+            <button
+              className="btn btn-ghost btn-sm"
+              disabled={!form.appid}
+              onClick={() => { actions.setSelectedGame(form); actions.setPage("workshop"); }}
+              title="打开创意工坊下载"
+            >
+              <Puzzle size={11} />工坊
+            </button>
             <Toggle
               checked={form.enabled}
               onChange={(enabled) => {

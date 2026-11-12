@@ -99,7 +99,11 @@ fn component_sha(steam_dir: &Path, component: &str) -> Option<String> {
 
 fn count_entries(channel: &str, text: &str) -> (u32, String) {
     if channel == "ipc" {
-        let methods = text.matches("funcHash").count() as u32;
+        // Only real method rows; the header line also mentions "funcHash".
+        let methods = text
+            .lines()
+            .filter(|line| line.trim_start().starts_with("funcHash ="))
+            .count() as u32;
         let interfaces = text
             .lines()
             .filter(|line| {
@@ -500,9 +504,10 @@ pub struct GenerateReport {
 
 /// Generate every channel that can be produced without further input.
 ///
-/// `pattern` needs only the DLL; `ipc` additionally needs the upstream IDL, and a
-/// failure there is reported in `skipped` instead of aborting the whole run — a
-/// missing IDL must not stop the two pattern channels from being written.
+/// Each channel is independent: a rule that no longer matches after a Steam
+/// update is reported in `skipped` instead of aborting the run. That matters in
+/// practice — a failed `pattern/steamclient` must not prevent the `ipc` file
+/// from being written, or the client shows both dialogs at once.
 pub fn generate_all(steam_dir: String, idl: Option<String>) -> Result<GenerateReport> {
     let dir = manager::validate_steam_dir(&steam_dir)?;
     let mut files = Vec::new();
@@ -510,26 +515,32 @@ pub fn generate_all(steam_dir: String, idl: Option<String>) -> Result<GenerateRe
 
     let ui = dir.join("steamui.dll");
     if ui.is_file() {
-        files.push(write_generated(&dir, "pattern", patterns::generate(&ui, "steamui")?)?);
+        match patterns::generate(&ui, "steamui") {
+            Ok(generated) => files.push(write_generated(&dir, "pattern", generated)?),
+            Err(err) => skipped.push(format!("pattern/steamui：{err}")),
+        }
     } else {
         skipped.push("steamui.dll 不存在".to_string());
     }
 
     let client = dir.join("steamclient64.dll");
     if client.is_file() {
-        // Parse the 26 MB image once for both channels.
-        let image = patterns::pe::Pe::load(&client).map_err(|e| e.to_string())?;
-        files.push(write_generated(
-            &dir,
-            "pattern",
-            patterns::generate_from(&image, &client, "steamclient")?,
-        )?);
-        // The IDL defaults to the embedded upstream copy, so ipc needs no input
-        // unless the user pinned a newer one in the settings page.
-        let idl_path = idl.as_deref().map(Path::new);
-        match patterns::generate_ipc_from(&image, &client, idl_path) {
-            Ok(generated) => files.push(write_generated(&dir, "ipc", generated)?),
-            Err(err) => skipped.push(format!("ipc：{err}")),
+        match patterns::pe::Pe::load(&client) {
+            Ok(image) => {
+                // Parse the 26 MB image once for both channels.
+                match patterns::generate_from(&image, &client, "steamclient") {
+                    Ok(generated) => files.push(write_generated(&dir, "pattern", generated)?),
+                    Err(err) => skipped.push(format!("pattern/steamclient：{err}")),
+                }
+                // The IDL defaults to the embedded upstream copy, so ipc needs no
+                // input unless the user pinned a newer one in the settings page.
+                let idl_path = idl.as_deref().map(Path::new);
+                match patterns::generate_ipc_from(&image, &client, idl_path) {
+                    Ok(generated) => files.push(write_generated(&dir, "ipc", generated)?),
+                    Err(err) => skipped.push(format!("ipc：{err}")),
+                }
+            }
+            Err(err) => skipped.push(format!("steamclient64.dll 无法解析：{err}")),
         }
     } else {
         skipped.push("steamclient64.dll 不存在".to_string());

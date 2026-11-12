@@ -1,5 +1,51 @@
 # 版本变更记录
 
+## v0.15.4
+
+- 修复 Steam 客户端 `1794424036`（`steamclient64.dll` SHA `ebf46f…4096c`）更新后「全部生成」失败、Steam 同时弹出「Unsupported Steam Version」和「IPC spec missing」的问题：新版编译器把部分函数拆成带 `UNW_FLAG_CHAININFO` 的前导/函数体片段，解析器现在会沿 pdata 链还原完整函数，并从正确的函数入口生成 RVA；同时更新 `steamclient` 的 `GetOrAddAppData`、`KeyValues_FindOrCreateKey`、`ProcessPendingLicenseUpdates`、`SendCallbackToPipe` 规则。
+- 「全部生成」改为各通道独立执行：某个 pattern 规则失效时只记入「跳过」，不再中止整轮，`ipc` 和其余通道仍会写入，避免两个弹窗同时出现。
+- 通道页的 IPC 方法数不再把文件头里的 `funcHash` 字样算成一个方法。
+- 工坊清单索引（`manifest.steam.run/api/workshop/<id>`）超时/502 时不再弹出「工坊清单索引不可用」警告：该接口只补充标题、Depot、大小等元数据，Steam `PublishedFileDetails` 可用时下载和安装仍然正常。
+- 版本号在 `package.json`、`tauri.conf.json`、`Cargo.toml`、界面显示四处统一为 `0.15.4`。
+
+## v0.15.3
+
+- 修复「切到别的游戏还显示上一个游戏的工坊物品与进度」：切换左侧游戏时清掉上一游戏的物品卡与输入框，输入框内容按 App 分开记忆、切回可恢复；下载任务与结果仍保存在全局，但**只在对应 App 下显示**。底部状态栏照旧提示「正在下载工坊内容」，不再把别的游戏的物品挂到当前游戏下面。
+- 修复「已安装到游戏 Mods」提示出现两次：同一条 note 之前被后端同时写进 `item.notes` 与 `report.notes`，物品卡和结果卡各渲染一次。现在物品卡过滤掉结果卡已有的 note，结果卡只保留一条（`游戏 Mods：<路径>（N 个文件）；重启游戏后在模组菜单启用。`）。
+- 版本号在 `package.json`、`tauri.conf.json`、`Cargo.toml`、界面显示四处统一为 `0.15.3`。
+
+## v0.15.2
+
+- 修复下载进度「切走再回来就没了」：进度、当前物品与下载结果原来存在工坊页的局部 state，切换游戏或页面后组件重建就丢；现在统一放到 `useAppController`，`workshop-progress` 事件也在全局监听，不再依赖工坊页是否打开。后台下载照常继续，切回来进度条、百分比与结果卡都在，`done` 后自动收起。
+- 修复「无法解密工坊文件名：Depot Key 不正确或 manifest 已损坏」的一类误报（实测物品 `3829696854`）：
+  - manifest 里文件名的 base64 每 64 字符带硬换行，旧代码直接解码失败——解码前先剥掉所有空白；
+  - manifest 中有 `flags & 0x40` 的目录条目（如 `Textures`、`Textures\Items`），旧代码把它们当文件 `File::create`，报「拒绝访问」——现在识别为目录并跳过。
+  该物品实测 `files=228 bytes=13623703`，并自动安装到游戏 `Mods\CutePortraits`。
+- 切换左侧游戏时清掉上一游戏的物品卡与输入框（输入按 App 分开记忆）；下载任务和上次结果仍然保留，但只在对应 App 下显示，切回即可看到，避免在 `Steam Input Configs` 下仍显示 `Probably Stolen` 的物品。
+- 下载结果里的「已安装到游戏 Mods」提示去重：物品卡不再重复同一句，结果卡只保留一条目录/文件数说明。
+- 版本号在 `package.json`、`tauri.conf.json`、`Cargo.toml`、界面显示四处统一为 `0.15.2`。
+
+## v0.15.1
+
+- 工坊下载支持**同时安装到游戏 `Mods` 文件夹**：部分游戏（实测 Probably Stolen）的模组菜单只扫描 `<游戏目录>/Mods`，不认 `steamapps/workshop/content`，下载完游戏里照样看不到。检测到 `Mods` 目录时下载面板默认勾选「同时安装到游戏 Mods 文件夹」，下载后自动复制过去。
+- 模组目录名从包内 `manifest.xml` 的 `<Assembly>` / `<ID>` 推导（去掉 `.dll` 后缀），所以 `SmartInventoryArrange.Mono.dll` 这类会落到 `Mods\SmartInventoryArrange.Mono`，与游戏加载器期望的目录名一致。
+- 覆盖前把已有文件备份到 `<游戏目录>/Mods.gost-backup/<模组名>`——放在 `Mods` **外面**，否则加载器会把备份目录当成第二个模组扫描（日志里的 `Duplicate mod ID` 就是这么来的）。只覆盖包内同名文件，用户自己的配置保留。
+- 下载结果新增 `mods_dir` / `mods_files`：面板直接显示安装到哪个目录、复制了几个文件；没装到 Mods 时给出一条 note 说明原因。
+- 工坊下载进度改由全局 controller 保存：下载中切到别的页面、或点了左侧别的游戏再回来，进度条和结果不会丢失。
+- 工坊 manifest 的文件名 base64 先去掉换行再解码，修复部分物品（如 3829696854）报「无法解密工坊文件名：Depot Key 不正确或 manifest 已损坏」。
+- 版本号在 `package.json`、`tauri.conf.json`、`Cargo.toml`、界面显示四处统一为 `0.15.1`。
+
+## v0.15.0
+
+- 新增「创意工坊」页：对有工坊的游戏粘贴链接或物品 ID，解析 App / 工坊 Depot / Manifest 后直接下载到 `steamapps/workshop/content/<AppId>/<物品ID>`，不再经过 Steam 的加密下载队列。
+- 新增工坊 Depot Key 链路：优先读当前 Lua、本机 `config.vdf` 和工具缓存；缺失时可从可配置的密钥库查询，也可以在下载面板手动填入。密钥库只补工坊 Depot，不生成、不猜测 Key。
+- 自动同步 `appworkshop_<AppId>.acf` 的 `WorkshopItemsInstalled` / `WorkshopItemDetails`，重启 Steam 或重新启动游戏后即可识别。
+- 「本地自动获取」现在会把 `workshopdepot` 补进 Depot 列表：拥有游戏但 Lua 漏了工坊 Depot 时，Steam 自带的工坊下载也能正常解密。
+- 支持旧版 UGC 工坊物品（`file_url` 直接下载）和新版 SteamPipe 工坊物品（manifest + 分块解密，支持 VZstd / Zip 分块）。
+- 设置页新增 `[workshop] key_url`，可留空禁用联网密钥库；下载页显示进度、文件数、字节数与写入目录。
+- 下载完成后可自动复制到游戏 `Mods/<模组名>`（读取 `manifest.xml` 的 `Assembly` / `ID` 决定目录名），解决游戏内模组菜单只扫描本地 `Mods`、看不到 Steam 工坊目录的问题。
+- 版本号在 `package.json`、`tauri.conf.json`、`Cargo.toml`、界面显示四处统一为 `0.15.0`。
+
 ## v0.13.6
 
 - 修复 DLC 的内容 Depot 被同时标成「主体」和「DLC」：主内容列表不再收录带 `dlcappid` 的 Depot（`4575721` / `4575722` 这类行此前会先以主体身份出现）。

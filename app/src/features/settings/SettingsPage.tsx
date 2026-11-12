@@ -59,6 +59,16 @@ export function SettingsPage({ controller }: { controller: AppController }) {
           <span className="f-label"><strong>额外 Lua 路径</strong><small>每行一个绝对路径</small></span>
           <textarea className="textarea mono" rows={3} value={luaPaths} onChange={(event) => setLuaPaths(event.target.value)} placeholder={"D:\\SteamLua\nE:\\SharedLua"} spellCheck={false} />
         </div>
+        <div className="field-row tall">
+          <span className="f-label"><strong>创意工坊密钥库</strong><small>仅在工坊下载缺 Key 时查询；留空则只用本地 Lua / config.vdf</small></span>
+          <input
+            className="input mono"
+            value={draft.workshop_key_url}
+            onChange={(event) => setDraft({ ...draft, workshop_key_url: event.target.value })}
+            placeholder="https://api.993499094.xyz/depotkeys.json"
+            spellCheck={false}
+          />
+        </div>
       </Card>
 
       <Card>

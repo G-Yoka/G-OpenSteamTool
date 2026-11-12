@@ -3,7 +3,8 @@ pub mod services;
 
 use manager::{GameConfig, ManagerSettings};
 use std::path::PathBuf;
-use tauri::Manager;
+use std::sync::Arc;
+use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 type CommandResult<T> = Result<T, String>;
@@ -78,6 +79,58 @@ async fn probe_manifest_channel(
 #[tauri::command]
 fn list_games(steam_dir: String) -> CommandResult<Vec<GameConfig>> {
     services::games::list(steam_dir)
+}
+
+#[tauri::command]
+fn workshop_apps(steam_dir: String) -> CommandResult<Vec<services::workshop::WorkshopApp>> {
+    services::workshop::workshop_apps(steam_dir)
+}
+
+#[tauri::command]
+async fn resolve_workshop_item(
+    steam_dir: String,
+    appid: Option<u32>,
+    item: String,
+) -> CommandResult<services::workshop::WorkshopItem> {
+    tauri::async_runtime::spawn_blocking(move || {
+        services::workshop::resolve_item(steam_dir, appid, &item)
+    })
+    .await
+    .map_err(|err| format!("Workshop resolve task failed: {err}"))?
+}
+
+#[tauri::command]
+async fn download_workshop_item(
+    app: tauri::AppHandle,
+    steam_dir: String,
+    appid: Option<u32>,
+    item: String,
+    depot_key: Option<String>,
+    install_mods: Option<bool>,
+) -> CommandResult<services::workshop::WorkshopDownloadReport> {
+    let progress_app = app.clone();
+    let progress: services::workshop::ProgressCallback = Arc::new(move |payload| {
+        let _ = progress_app.emit("workshop-progress", payload);
+    });
+    tauri::async_runtime::spawn_blocking(move || {
+        services::workshop::download_item(
+            steam_dir,
+            appid,
+            &item,
+            depot_key,
+            install_mods.unwrap_or(true),
+            Some(progress),
+        )
+    })
+    .await
+    .map_err(|err| format!("Workshop download task failed: {err}"))?
+}
+
+#[tauri::command]
+async fn refresh_workshop_keys(steam_dir: String) -> CommandResult<usize> {
+    tauri::async_runtime::spawn_blocking(move || services::workshop::refresh_key_db(steam_dir))
+        .await
+        .map_err(|err| format!("Workshop key refresh task failed: {err}"))?
 }
 
 #[tauri::command]
@@ -263,6 +316,10 @@ pub fn run() {    tauri::Builder::default()
             remove_manifest_lua,
             probe_manifest_channel,
             list_games,
+            workshop_apps,
+            resolve_workshop_item,
+            download_workshop_item,
+            refresh_workshop_keys,
             import_lua_files,
             open_lua_dir,
             upsert_game,

@@ -796,3 +796,33 @@ a:hover { color: var(--fg); text-decoration: underline; }
 .discovery-appid { color: var(--fg-2); }
 .discovery-meta { font-size: var(--fs-meta); color: var(--fg-3); text-align: right; white-space: nowrap; }
 .discovery-row .btn { justify-self: end; }
+
+/* 创意工坊 */
+.workshop-page { grid-template-columns: 246px minmax(0, 1fr); }
+.ws-input-row { display: flex; align-items: center; gap: 6px; }
+.ws-input-row .input { flex: 1; min-width: 0; }
+.ws-item { display: grid; gap: 6px; margin-top: 8px; padding: 9px 10px; border: 1px solid var(--line-2); border-radius: var(--r); background: var(--raise); }
+.ws-item-title { font-size: var(--fs-body); font-weight: 600; line-height: 1.35; }
+.ws-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--fg-3); font-size: var(--fs-meta-cjk); }
+.ws-meta b { color: var(--fg-2); font-weight: 500; }
+.ws-badges { display: flex; flex-wrap: wrap; gap: 5px; }
+.ws-notes { display: grid; gap: 3px; margin-top: 4px; color: var(--warn-fg); font-size: var(--fs-meta-cjk); }
+.ws-notes span { display: flex; gap: 5px; align-items: flex-start; line-height: 1.4; }
+.ws-notes svg { flex: none; margin-top: 1px; }
+.ws-key-line { display: flex; gap: 6px; align-items: flex-start; margin-top: 7px; color: var(--fg-3); font-size: var(--fs-meta-cjk); line-height: 1.45; }
+.ws-key-line svg { flex: none; margin-top: 1px; color: var(--accent); }
+.ws-progress-box { display: grid; gap: 5px; margin-top: 7px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--raise); }
+.ws-progress-head { display: flex; justify-content: space-between; align-items: baseline; color: var(--fg-2); font-size: var(--fs-meta-cjk); }
+.ws-progress { height: 5px; border-radius: 3px; background: var(--raise-3); overflow: hidden; }
+.ws-progress > i { display: block; height: 100%; background: var(--accent); transition: width .18s ease-out; }
+.ws-progress-sub { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--fg-3); font-family: var(--mono); font-size: var(--fs-meta); }
+.ws-current { flex: 1 1 180px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-result { display: grid; gap: 4px; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--accent-line); border-radius: var(--r); background: var(--accent-bg); }
+.ws-result-head { display: flex; align-items: center; gap: 5px; color: var(--accent-fg); font-size: var(--fs-meta-cjk); font-weight: 600; }
+.ws-path { color: var(--fg-2); font-size: var(--fs-meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-help { display: grid; gap: 5px; color: var(--fg-3); font-size: var(--fs-meta-cjk); line-height: 1.55; }
+.ws-help p { margin: 0; display: flex; gap: 6px; align-items: flex-start; }
+.ws-help svg { flex: none; margin-top: 2px; color: var(--fg-3); }
+.ws-help code { font-family: var(--mono); font-size: var(--fs-meta); color: var(--fg-2); }
+.g-dot.ok { background: var(--accent); }
+.g-dot.warn { background: var(--warn); }

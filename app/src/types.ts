@@ -43,6 +43,8 @@ export type ManagerSettings = {
   manage_manifest_lua: boolean;
   /** Optional self-hosted manifest-code endpoint prefix. */
   manifest_lua_endpoint: string;
+  /** Optional depot-key database for workshop items (empty disables lookup). */
+  workshop_key_url: string;
 };
 
 export type ManifestLuaStatus = {
@@ -187,6 +189,58 @@ export type AppMetadata = {
   appid: number;
   name: string;
   source: string;
+};
+
+export type WorkshopApp = {
+  appid: number;
+  name: string;
+  workshop_depot: number;
+  key_ready: boolean;
+  key_source: string;
+  installed_items: number;
+  content_dir: string;
+};
+
+export type WorkshopItem = {
+  published_file_id: number;
+  appid: number;
+  title: string;
+  workshop_depot: number;
+  manifest_gid: string;
+  size_bytes: number;
+  time_updated: number;
+  legacy: boolean;
+  legacy_file_url?: string | null;
+  legacy_file_name?: string | null;
+  key_ready: boolean;
+  key_source: string;
+  installed: boolean;
+  content_dir: string;
+  mods_available: boolean;
+  game_mods_dir?: string | null;
+  notes: string[];
+};
+
+export type WorkshopProgress = {
+  item_id: number;
+  phase: string;
+  message: string;
+  bytes_done: number;
+  bytes_total: number;
+  chunks_done: number;
+  chunks_total: number;
+  current_file: string;
+};
+
+export type WorkshopDownloadReport = {
+  item: WorkshopItem;
+  files: number;
+  bytes: number;
+  elapsed_ms: number;
+  content_dir: string;
+  mods_dir?: string | null;
+  mods_files: number;
+  notes: string[];
 };
 
 export type DiscoveredDepot = {

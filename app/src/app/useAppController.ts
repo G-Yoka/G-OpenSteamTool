@@ -8,8 +8,9 @@ import {
   removeManifestLua as removeManifestLuaApi,
   manifestLuaStatus,
   probeManifestChannel,
+  workshopApps, resolveWorkshopItem, downloadWorkshopItem, refreshWorkshopKeys, onWorkshopProgress,
 } from "../api";
-import type { BuildInspection, GameConfig, ManagerSettings, ManifestLuaStatus } from "../types";
+import type { BuildInspection, GameConfig, ManagerSettings, ManifestLuaStatus, WorkshopDownloadReport, WorkshopItem, WorkshopProgress } from "../types";
 import { defaultSettings, emptyGame, errorMessage, normalizeGame, type NoticeTone, type PageId } from "./model";
 
 const STEAM_DIR_KEY = "gost.steamDirectory";
@@ -25,12 +26,35 @@ export function useAppController() {
   const [logs, setLogs] = useState<Awaited<ReturnType<typeof readLogs>>>([]);
   const [selectedLog, setSelectedLog] = useState("");
   const [selectedGame, setSelectedGame] = useState<GameConfig>(emptyGame);
+  const [workshopItem, setWorkshopItem] = useState<WorkshopItem | null>(null);
+  const [workshopProgress, setWorkshopProgress] = useState<WorkshopProgress | null>(null);
+  const [workshopReport, setWorkshopReport] = useState<WorkshopDownloadReport | null>(null);
+  const [workshopTaskAppid, setWorkshopTaskAppid] = useState<number | null>(null);
   const [activity, setActivity] = useState<"idle" | "loading" | "working">("loading");
   const [notice, setNotice] = useState({ tone: "neutral" as NoticeTone, message: "正在检测 Steam 环境…", time: now() });
   const bootStarted = useRef(false);
   const gamesHydrated = useRef(false);
 
   const notify = useCallback((tone: NoticeTone, message: string) => setNotice({ tone, message, time: now() }), []);
+
+  // 进度挂到 controller：工坊页被切走/切换游戏后回来仍能看到正在进行的下载。
+  useEffect(() => {
+    let alive = true;
+    let unlisten: (() => void) | undefined;
+    void onWorkshopProgress((payload) => {
+      if (!alive) return;
+      setWorkshopProgress(payload);
+      if (payload.phase === "done") {
+        window.setTimeout(() => {
+          if (alive) setWorkshopProgress((current) => (current?.phase === "done" ? null : current));
+        }, 900);
+      }
+    }).then((fn) => {
+      if (alive) unlisten = fn;
+      else fn();
+    }).catch(() => undefined);
+    return () => { alive = false; unlisten?.(); };
+  }, []);
 
   const refreshScan = useCallback(async (dir = steamDir) => {
     if (dir) setScan(await scanState(dir));
@@ -155,7 +179,7 @@ export function useAppController() {
         const done = report.files.map((file) => `${file.channel}/${file.component}`).join("、");
         const skipped = report.skipped.length ? `；跳过 ${report.skipped.join("，")}` : "";
         await refreshAll();
-        notify("success", `初始化完成：已生成 ${done || "0 个通道"}${skipped}`);
+        notify(report.skipped.length ? "neutral" : "success", `初始化完成：已生成 ${done || "0 个通道"}${skipped}`);
       } catch (error) {
         notify("error", errorMessage(error));
       } finally {
@@ -169,7 +193,7 @@ export function useAppController() {
         const report = await generateAllChannels(steamDir, localStorage.getItem("gost.idl"));
         await refreshAll();
         const skipped = report.skipped.length ? `；跳过 ${report.skipped.join("，")}` : "";
-        notify("success", `已生成 ${report.files.length} 个通道${skipped}；重启 Steam 生效`);
+        notify(report.skipped.length ? "neutral" : "success", `已生成 ${report.files.length} 个通道${skipped}；重启 Steam 生效`);
       } catch (error) {
         notify("error", errorMessage(error));
       } finally {
@@ -247,6 +271,82 @@ export function useAppController() {
     // 静默的归属标注：给已保存配置的每一行标「主内容 / DLC」，失败就当没有。
     classifyDepots: (appid: number) =>
       appid ? depotOwnership(steamDir, appid).catch(() => null) : Promise.resolve(null),
+    loadWorkshopApps: async (): Promise<import("../types").WorkshopApp[]> => {
+      try {
+        return await workshopApps(steamDir);
+      } catch (error) {
+        notify("error", errorMessage(error));
+        return [];
+      }
+    },
+    selectWorkshopItem: (next: WorkshopItem | null) => {
+      setWorkshopItem(next);
+      setWorkshopReport(null);
+      setWorkshopProgress(null);
+    },
+    clearWorkshopItem: () => {
+      setWorkshopItem(null);
+      setWorkshopReport(null);
+    },
+    clearWorkshopSelection: () => {
+      setWorkshopItem(null);
+    },
+    resolveWorkshop: async (appid: number | null, item: string): Promise<WorkshopItem | null> => {
+      if (!item.trim()) { notify("error", "请先粘贴创意工坊链接或物品 ID"); return null; }
+      setActivity("working");
+      notify("working", "正在解析创意工坊物品…");
+      try {
+        const next = await resolveWorkshopItem(steamDir, appid, item);
+        setWorkshopItem(next);
+        setWorkshopReport(null);
+        setWorkshopProgress(null);
+        return next;
+      } catch (error) {
+        notify("error", errorMessage(error));
+        return null;
+      } finally {
+        setActivity("idle");
+      }
+    },
+    downloadWorkshop: async (
+      appid: number | null, item: string, depotKey?: string | null, installMods = true,
+    ): Promise<WorkshopDownloadReport | null> => {
+      if (!item.trim()) { notify("error", "请先解析要下载的工坊物品"); return null; }
+      setActivity("working");
+      setWorkshopTaskAppid(appid);
+      setWorkshopReport(null);
+      setWorkshopProgress(null);
+      notify("working", "正在下载工坊内容，请保持 Steam 关闭或不要启动游戏…");
+      try {
+        const report = await downloadWorkshopItem(steamDir, appid, item, depotKey, installMods);
+        setWorkshopReport(report);
+        setWorkshopItem(report.item);
+        const mods = report.mods_dir ? `，并安装到游戏 Mods（${report.mods_files} 个文件）` : "";
+        const warning = report.notes.length ? `；${report.notes[0]}` : "";
+        notify(report.notes.length ? "neutral" : "success", `已下载 ${report.files} 个文件，${formatBytes(report.bytes)}${mods}${warning}`);
+        return report;
+      } catch (error) {
+        setWorkshopProgress(null);
+        notify("error", errorMessage(error));
+        return null;
+      } finally {
+        setActivity("idle");
+      }
+    },
+    refreshWorkshopKeyDb: async (): Promise<number | null> => {
+      setActivity("working");
+      notify("working", "正在更新创意工坊密钥库…");
+      try {
+        const count = await refreshWorkshopKeys(steamDir);
+        notify("success", `密钥库已更新：${count} 个 Depot`);
+        return count;
+      } catch (error) {
+        notify("error", errorMessage(error));
+        return null;
+      } finally {
+        setActivity("idle");
+      }
+    },
     // 一次多选导入：单个文件解析失败只跳过它，其余照常写入并刷新配置库。
     importLua: async () => {
       setActivity("working");
@@ -304,10 +404,20 @@ export function useAppController() {
   }), [notify, refreshAll, refreshGames, refreshScan, run, steamDir]);
 
   return {
-    state: { page, steamDir, scan, build, settings, games, logs, selectedLog, selectedGame, activity, notice, manifestLua },
+    state: {
+      page, steamDir, scan, build, settings, games, logs, selectedLog, selectedGame, activity, notice, manifestLua,
+      workshopItem, workshopProgress, workshopReport, workshopTaskAppid,
+    },
     actions,
   };
 }
 
 export type AppController = ReturnType<typeof useAppController>;
 function now() { return new Date().toLocaleTimeString("zh-CN", { hour12: false }); }
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
