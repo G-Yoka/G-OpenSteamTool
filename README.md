@@ -9,7 +9,7 @@ Windows 上的 OpenSteamTool 桌面管理器：装组件、配游戏 Lua、生�
 - 系统要求：Windows 10 / 11 x64
 - 下载：[GitHub Releases](https://github.com/G-Yoka/G-OpenSteamTool/releases/latest)（便携单文件，DLL 已内嵌）
 
-> 本工具只做本地管理与配置整理，不编译 OpenSteamTool 上游源码，也不会生成或猜测 Depot Key。创意工坊下载在本地缺 Key 时可选使用公开密钥库补工坊 Depot（可在设置里留空 `[workshop] key_url` 关闭）。
+> 本工具只做本地管理与配置整理，不编译 OpenSteamTool 上游源码。创意工坊下载在本地缺 Key 时可选使用公开密钥库补工坊 Depot（可在设置里留空 `[workshop] key_url` 关闭）。
 
 ## 界面预览
 
