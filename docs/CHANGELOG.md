@@ -1,5 +1,15 @@
 # 版本变更记录
 
+## v0.15.5
+
+- 「一键初始化」改为严格顺序执行：先预检状态 → Steam 正在运行时弹确认「关闭 Steam 并继续 / 取消」→ 关闭并等待 `steam.exe` 退出 → 安装/校验 DLL → 写 `opensteamtool.toml` → 生成三个通道；**任一步失败即停止**，不再出现「组件失败但通道继续写、最后报部分完成」。初始化前 Steam 是运行状态时，完成后自动重新启动 Steam；原本没运行则不擅自启动。
+- 成功提示改为一次讲清：`初始化完成：已生成 pattern/steamui、pattern/steamclient、ipc/steamclient；Steam 已重新启动`，不再是「先生成、再让你自己重启」的两段式。
+- 修复通道写错目录：`store_generated` 现在显式接收 `pattern` / `ipc` 作为落盘目录，不再使用规则文件头里的 `channel`（那是组件名，不是目录名）。此前 pattern 会被写到 `opensteamtool\steamui\steamui\…`、`opensteamtool\steamclient\steamclient\…`，界面于是显示缺失、只有 ipc 正常。附回归测试 `store_generated_uses_requested_channel_directory`。
+- 新增应用内确认框 `ConfirmDialog`，替换 `@tauri-apps/plugin-dialog` 的 Windows 原生 MessageBox：使用 `--overlay` / `--line-3` / `--raise` / `--accent` 等主题变量，深/浅色都跟随应用；支持 Esc 与点遮罩取消，默认焦点在确认按钮。
+- `safe_replace_file` 的错误信息带上具体文件路径，并区分「被 Steam / 杀毒占用」与「无写权限」；`.gost.bak` 清理改为 best-effort，不再因为已加载旧镜像删不掉而让初始化失败。
+- DLL 哈希与内置一致时跳过重写，避免无谓地重写数 MB 文件。
+- 版本号在 `package.json`、`tauri.conf.json`、`Cargo.toml`、界面显示四处统一为 `0.15.5`。
+
 ## v0.15.4
 
 - 修复 Steam 客户端 `1794424036`（`steamclient64.dll` SHA `ebf46f…4096c`）更新后「全部生成」失败、Steam 同时弹出「Unsupported Steam Version」和「IPC spec missing」的问题：新版编译器把部分函数拆成带 `UNW_FLAG_CHAININFO` 的前导/函数体片段，解析器现在会沿 pdata 链还原完整函数，并从正确的函数入口生成 RVA；同时更新 `steamclient` 的 `GetOrAddAppData`、`KeyValues_FindOrCreateKey`、`ProcessPendingLicenseUpdates`、`SendCallbackToPipe` 规则。

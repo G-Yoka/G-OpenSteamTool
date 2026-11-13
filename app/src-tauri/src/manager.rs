@@ -1280,11 +1280,54 @@ pub fn install_bundled_dlls<P: AsRef<Path>>(steam_dir: P) -> Result<()> {
     let mut manifest = InstallManifest {
         dlls: BTreeMap::new(),
     };
+    let mut pending = Vec::new();
+
+    // A DLL mapped by Steam can be renamed but its old image cannot be deleted.
+    // If a real update is needed, ask for a full Steam exit instead of leaving
+    // `.gost.bak` files behind. Already-current files are left untouched, so a
+    // routine "一键初始化" can continue with settings + channel data.
     for name in DLL_NAMES {
         let dst = steam_dir.join(name);
-        safe_replace_file(&dst, bundled_dll(name))?;
-        manifest.dlls.insert(name.to_string(), file_hash(&dst)?);
+        let bundled_hash = bytes_hash(bundled_dll(name));
+        let current_hash = if dst.exists() {
+            Some(
+                file_hash_hex(&dst)
+                    .map_err(|err| format!("读取 {} 失败：{err}", dst.display()))?,
+            )
+        } else {
+            None
+        };
+        if current_hash.as_deref() == Some(bundled_hash.as_str()) {
+            // The target is already correct, so any leftover backup is an old
+            // copy and can be removed (unless Steam still maps it).
+            cleanup_replace_leftovers(&steam_dir, name);
+            manifest.dlls.insert(name.to_string(), bundled_hash);
+        } else {
+            pending.push((name, bundled_hash));
+        }
     }
+
+    if !pending.is_empty() && is_steam_running() {
+        let names = pending
+            .iter()
+            .map(|(name, _)| *name)
+            .collect::<Vec<_>>()
+            .join("、");
+        return Err(format!(
+            "Steam 正在运行，无法替换已加载的组件：{names}。请先完全退出 Steam，再点「一键初始化」或「安装或修复」。"
+        ));
+    }
+
+    for (name, expected_hash) in pending {
+        let dst = steam_dir.join(name);
+        safe_replace_file(&dst, bundled_dll(name))?;
+        let actual_hash = file_hash(&dst)?;
+        if actual_hash != expected_hash {
+            return Err(format!("组件写入后哈希不一致：{}", dst.display()));
+        }
+        manifest.dlls.insert(name.to_string(), actual_hash);
+    }
+
     write_manifest(&steam_dir, &manifest)
 }
 
@@ -2295,6 +2338,22 @@ fn bytes_hash(bytes: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+/// Removes leftovers from a previous `safe_replace_file` run. A DLL mapped by
+/// Steam cannot be deleted, so failures are intentionally ignored; the next run
+/// (or the next time Steam is closed) will clean them up.
+fn cleanup_replace_leftovers(parent: &Path, name: &str) {
+    let _ = fs::remove_file(parent.join(format!(".{name}.gost.tmp")));
+    let _ = fs::remove_file(parent.join(format!(".{name}.gost.bak")));
+    let prefix = format!(".{name}.gost.bak.");
+    if let Ok(entries) = fs::read_dir(parent) {
+        for entry in entries.flatten() {
+            if entry.file_name().to_string_lossy().starts_with(&prefix) {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+    }
+}
+
 fn write_manifest(steam_dir: &Path, manifest: &InstallManifest) -> Result<()> {
     let text = serde_json::to_string_pretty(manifest).map_err(|err| err.to_string())?;
     safe_replace_file(&steam_dir.join(INSTALL_MANIFEST), text.as_bytes())
@@ -2320,23 +2379,43 @@ fn safe_replace_file(path: &Path, contents: &[u8]) -> Result<()> {
 
     if !path.exists() && backup.exists() {
         fs::rename(&backup, path)
-            .map_err(|err| format!("Failed to recover previous {}: {err}", path.display()))?;
+            .map_err(|err| format!("恢复 {} 失败：{err}", path.display()))?;
     }
     if staged.exists() {
-        fs::remove_file(&staged).map_err(|err| err.to_string())?;
+        let _ = fs::remove_file(&staged);
     }
     if backup.exists() {
-        fs::remove_file(&backup).map_err(|err| err.to_string())?;
+        // A loaded DLL can be renamed but not deleted. If the previous run left
+        // the old image behind, move it aside so this run still has a free
+        // backup slot; cleanup is best-effort and must not abort the install.
+        if fs::remove_file(&backup).is_err() {
+            let stale = parent.join(format!(
+                ".{name}.gost.bak.{}",
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|duration| duration.as_nanos())
+                    .unwrap_or(0)
+            ));
+            let _ = fs::rename(&backup, &stale);
+        }
     }
 
-    let mut file = fs::File::create(&staged).map_err(|err| err.to_string())?;
-    file.write_all(contents).map_err(|err| err.to_string())?;
-    file.sync_all().map_err(|err| err.to_string())?;
+    let mut file = fs::File::create(&staged)
+        .map_err(|err| format!("创建临时文件 {} 失败：{err}", staged.display()))?;
+    file.write_all(contents)
+        .map_err(|err| format!("写入 {} 失败：{err}", staged.display()))?;
+    file.sync_all()
+        .map_err(|err| format!("刷新 {} 失败：{err}", staged.display()))?;
     drop(file);
 
     let had_previous = path.exists();
     if had_previous {
-        fs::rename(path, &backup).map_err(|err| err.to_string())?;
+        fs::rename(path, &backup).map_err(|err| {
+            format!(
+                "替换 {} 失败（文件可能正被 Steam 占用，或没有写权限）：{err}",
+                path.display()
+            )
+        })?;
     }
 
     if let Err(err) = fs::rename(&staged, path) {
@@ -2344,11 +2423,14 @@ fn safe_replace_file(path: &Path, contents: &[u8]) -> Result<()> {
             let _ = fs::rename(&backup, path);
         }
         let _ = fs::remove_file(&staged);
-        return Err(format!("Failed to commit {}: {err}", path.display()));
+        return Err(format!("提交 {} 失败：{err}", path.display()));
     }
 
+    // The replacement is already committed. If Steam still maps the old image,
+    // deleting the backup is impossible; retry later instead of failing the
+    // whole install and leaving the remaining components untouched.
     if backup.exists() {
-        fs::remove_file(backup).map_err(|err| err.to_string())?;
+        let _ = fs::remove_file(&backup);
     }
     Ok(())
 }

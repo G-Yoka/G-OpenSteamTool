@@ -3,11 +3,20 @@ import type { BuildInspection, GameConfig, LogFile, ManagerSettings, ScanState }
 export type PageId = "overview" | "channels" | "dlls" | "games" | "workshop" | "logs" | "diagnostics" | "settings" | "about";
 
 /** 界面显示的版本号单一来源（与 package.json 的发布号保持同步）。 */
-export const APP_VERSION = "0.15.4";
+export const APP_VERSION = "0.15.5";
 export type ActivityState = "idle" | "loading" | "working";
 export type NoticeTone = "neutral" | "working" | "success" | "error";
 
 export type Notice = { tone: NoticeTone; message: string; time: string };
+
+/** 应用内确认框请求：不使用系统原生 MessageBox，跟随深浅主题。 */
+export type ConfirmRequest = {
+  title: string;
+  message: string;
+  okLabel: string;
+  cancelLabel: string;
+  tone?: "warning" | "danger";
+};
 
 export type AppViewState = {
   page: PageId;
@@ -21,6 +30,7 @@ export type AppViewState = {
   selectedGame: GameConfig;
   activity: ActivityState;
   notice: Notice;
+  confirm: ConfirmRequest | null;
 };
 
 export const defaultSettings: ManagerSettings = {

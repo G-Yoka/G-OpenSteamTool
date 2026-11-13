@@ -826,3 +826,23 @@ a:hover { color: var(--fg); text-decoration: underline; }
 .ws-help code { font-family: var(--mono); font-size: var(--fs-meta); color: var(--fg-2); }
 .g-dot.ok { background: var(--accent); }
 .g-dot.warn { background: var(--warn); }
+
+/* 应用内确认框：不使用系统 MessageBox，跟随深浅主题 */
+.palette-scrim.confirm-scrim { align-items: center; padding-top: 0; z-index: 60; }
+.confirm {
+  width: min(440px, 92vw);
+  overflow: hidden;
+  border: 1px solid var(--line-3);
+  border-radius: var(--r-lg);
+  background: var(--overlay);
+  box-shadow: var(--shadow-lg), var(--shadow-inset);
+  animation: ovPop var(--dur-ov) var(--ease);
+}
+.confirm-head { display: flex; align-items: center; gap: 8px; padding: 13px 14px 0; }
+.confirm-icon { display: grid; place-items: center; color: var(--warn); }
+.confirm.danger .confirm-icon { color: var(--danger); }
+.confirm-title { flex: 1; min-width: 0; color: var(--fg); font-size: var(--fs-body); font-weight: 600; }
+.confirm-close { display: grid; place-items: center; width: 22px; height: 22px; border-radius: var(--r-sm); color: var(--fg-3); }
+.confirm-close:hover { background: var(--raise-2); color: var(--fg); }
+.confirm-body { padding: 9px 14px 15px 38px; color: var(--fg-2); font-size: var(--fs-body); line-height: 1.6; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 6px; padding: 10px 14px; border-top: 1px solid var(--line); background: var(--raise); }

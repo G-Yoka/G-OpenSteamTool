@@ -11,7 +11,7 @@ import {
   workshopApps, resolveWorkshopItem, downloadWorkshopItem, refreshWorkshopKeys, onWorkshopProgress,
 } from "../api";
 import type { BuildInspection, GameConfig, ManagerSettings, ManifestLuaStatus, WorkshopDownloadReport, WorkshopItem, WorkshopProgress } from "../types";
-import { defaultSettings, emptyGame, errorMessage, normalizeGame, type NoticeTone, type PageId } from "./model";
+import { defaultSettings, emptyGame, errorMessage, normalizeGame, type ConfirmRequest, type NoticeTone, type PageId } from "./model";
 
 const STEAM_DIR_KEY = "gost.steamDirectory";
 
@@ -32,10 +32,24 @@ export function useAppController() {
   const [workshopTaskAppid, setWorkshopTaskAppid] = useState<number | null>(null);
   const [activity, setActivity] = useState<"idle" | "loading" | "working">("loading");
   const [notice, setNotice] = useState({ tone: "neutral" as NoticeTone, message: "正在检测 Steam 环境…", time: now() });
+  const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
+  const confirmResolver = useRef<((ok: boolean) => void) | null>(null);
   const bootStarted = useRef(false);
   const gamesHydrated = useRef(false);
 
   const notify = useCallback((tone: NoticeTone, message: string) => setNotice({ tone, message, time: now() }), []);
+
+  const askConfirm = useCallback((request: ConfirmRequest) => new Promise<boolean>((resolve) => {
+    confirmResolver.current = resolve;
+    setConfirm(request);
+  }), []);
+
+  const resolveConfirm = useCallback((ok: boolean) => {
+    setConfirm(null);
+    const resolve = confirmResolver.current;
+    confirmResolver.current = null;
+    resolve?.(ok);
+  }, []);
 
   // 进度挂到 controller：工坊页被切走/切换游戏后回来仍能看到正在进行的下载。
   useEffect(() => {
@@ -153,7 +167,7 @@ export function useAppController() {
   }, [notify, refreshAll, refreshGames, refreshLogs, refreshScan]);
 
   const actions = useMemo(() => ({
-    setPage, setSettings, setSelectedLog,
+    setPage, setSettings, setSelectedLog, resolveConfirm,
     setSelectedGame: (game: GameConfig) => setSelectedGame(normalizeGame(game)),
     newGame: () => setSelectedGame(emptyGame),
     chooseSteamDir: async () => {
@@ -171,15 +185,75 @@ export function useAppController() {
     refreshAll: () => run(async () => undefined, "正在刷新全部状态…", "状态已刷新", ["all"]).catch(() => undefined),
     initialize: async () => {
       setActivity("working");
-      notify("working", "正在安装组件、创建配置并生成通道数据…");
       try {
-        await installDlls(steamDir);
-        await saveSettings(steamDir, defaultSettings);
-        const report = await generateAllChannels(steamDir, localStorage.getItem("gost.idl"));
-        const done = report.files.map((file) => `${file.channel}/${file.component}`).join("、");
-        const skipped = report.skipped.length ? `；跳过 ${report.skipped.join("，")}` : "";
-        await refreshAll();
-        notify(report.skipped.length ? "neutral" : "success", `初始化完成：已生成 ${done || "0 个通道"}${skipped}`);
+        const before = await scanState(steamDir);
+        const wasRunning = before.steam_running;
+        if (wasRunning) {
+          const proceed = await askConfirm({
+            title: "一键初始化",
+            message: "初始化会更新 Steam 目录中的组件和通道数据。需要先完全退出 Steam，完成后会自动重新启动 Steam。是否继续？",
+            okLabel: "关闭 Steam 并继续",
+            cancelLabel: "取消",
+            tone: "warning",
+          });
+          if (!proceed) {
+            notify("neutral", "已取消初始化");
+            return;
+          }
+          notify("working", "正在关闭 Steam…");
+          await closeSteam();
+        }
+
+        const failures: string[] = [];
+        let report: Awaited<ReturnType<typeof generateAllChannels>> | null = null;
+        notify("working", "正在安装组件、创建配置并生成通道数据…");
+
+        try {
+          await installDlls(steamDir);
+        } catch (error) {
+          failures.push(`组件未更新：${errorMessage(error)}`);
+        }
+        if (!failures.length) {
+          try {
+            await saveSettings(steamDir, defaultSettings);
+          } catch (error) {
+            failures.push(`配置未写入：${errorMessage(error)}`);
+          }
+        }
+        if (!failures.length) {
+          try {
+            report = await generateAllChannels(steamDir, localStorage.getItem("gost.idl"));
+          } catch (error) {
+            failures.push(`通道未生成：${errorMessage(error)}`);
+          }
+        }
+
+        let restarted = false;
+        if (wasRunning) {
+          notify("working", "正在重新启动 Steam…");
+          try {
+            await restartSteam(steamDir);
+            restarted = true;
+          } catch (error) {
+            failures.push(`Steam 启动失败：${errorMessage(error)}`);
+          }
+        }
+
+        try {
+          await refreshAll();
+        } catch (error) {
+          failures.push(`状态刷新失败：${errorMessage(error)}`);
+        }
+
+        if (failures.length) {
+          const suffix = wasRunning ? (restarted ? "；Steam 已重新启动" : "") : "；Steam 未启动";
+          notify("error", `初始化未完成：${failures.join("；")}${suffix}`);
+        } else {
+          const done = report?.files.map((file) => `${file.channel}/${file.component}`).join("、") ?? "";
+          const skipped = report?.skipped.length ? `；跳过 ${report.skipped.join("，")}` : "";
+          const suffix = wasRunning ? (restarted ? "；Steam 已重新启动" : "") : "；启动 Steam 后生效";
+          notify(report?.skipped.length ? "neutral" : "success", `初始化完成：已生成 ${done || "0 个通道"}${skipped}${suffix}`);
+        }
       } catch (error) {
         notify("error", errorMessage(error));
       } finally {
@@ -401,11 +475,11 @@ export function useAppController() {
       `${channel}/${component} 已移除`,
       ["all"],
     ).catch(() => undefined),
-  }), [notify, refreshAll, refreshGames, refreshScan, run, steamDir]);
+  }), [notify, refreshAll, refreshGames, refreshScan, resolveConfirm, run, steamDir]);
 
   return {
     state: {
-      page, steamDir, scan, build, settings, games, logs, selectedLog, selectedGame, activity, notice, manifestLua,
+      page, steamDir, scan, build, settings, games, logs, selectedLog, selectedGame, activity, notice, manifestLua, confirm,
       workshopItem, workshopProgress, workshopReport, workshopTaskAppid,
     },
     actions,

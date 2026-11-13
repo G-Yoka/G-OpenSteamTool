@@ -9,6 +9,7 @@ import { closeWindow, minimizeWindow, startWindowDrag, toggleMaximize } from "..
 import appIcon from "../assets/app-icon.png";
 import type { Command } from "./commands";
 import { CommandPalette, ShortcutSheet } from "./CommandPalette";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { useTheme } from "./useTheme";
 import { Kbd } from "../shared/ui";
 import { AboutPage } from "../features/about/AboutPage";
@@ -262,6 +263,7 @@ export function AppShell({ controller }: { controller: AppController }) {
 
       <CommandPalette open={paletteOpen} commands={commands} onClose={() => setPaletteOpen(false)} />
       <ShortcutSheet open={sheetOpen} onClose={() => setSheetOpen(false)} />
+      <ConfirmDialog request={state.confirm} onResolve={actions.resolveConfirm} />
     </div>
   );
 }

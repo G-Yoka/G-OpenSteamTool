@@ -516,7 +516,7 @@ pub fn generate_all(steam_dir: String, idl: Option<String>) -> Result<GenerateRe
     let ui = dir.join("steamui.dll");
     if ui.is_file() {
         match patterns::generate(&ui, "steamui") {
-            Ok(generated) => files.push(write_generated(&dir, "pattern", generated)?),
+            Ok(generated) => store_generated(&dir, "pattern", generated, &mut files, &mut skipped),
             Err(err) => skipped.push(format!("pattern/steamui：{err}")),
         }
     } else {
@@ -529,14 +529,16 @@ pub fn generate_all(steam_dir: String, idl: Option<String>) -> Result<GenerateRe
             Ok(image) => {
                 // Parse the 26 MB image once for both channels.
                 match patterns::generate_from(&image, &client, "steamclient") {
-                    Ok(generated) => files.push(write_generated(&dir, "pattern", generated)?),
+                    Ok(generated) => {
+                        store_generated(&dir, "pattern", generated, &mut files, &mut skipped)
+                    }
                     Err(err) => skipped.push(format!("pattern/steamclient：{err}")),
                 }
                 // The IDL defaults to the embedded upstream copy, so ipc needs no
                 // input unless the user pinned a newer one in the settings page.
                 let idl_path = idl.as_deref().map(Path::new);
                 match patterns::generate_ipc_from(&image, &client, idl_path) {
-                    Ok(generated) => files.push(write_generated(&dir, "ipc", generated)?),
+                    Ok(generated) => store_generated(&dir, "ipc", generated, &mut files, &mut skipped),
                     Err(err) => skipped.push(format!("ipc：{err}")),
                 }
             }
@@ -547,6 +549,20 @@ pub fn generate_all(steam_dir: String, idl: Option<String>) -> Result<GenerateRe
     }
 
     Ok(GenerateReport { files, skipped })
+}
+
+fn store_generated(
+    dir: &Path,
+    channel: &str,
+    generated: patterns::GeneratedPattern,
+    files: &mut Vec<ChannelFile>,
+    skipped: &mut Vec<String>,
+) {
+    let label = format!("{channel}/{}", generated.component);
+    match write_generated(dir, channel, generated) {
+        Ok(file) => files.push(file),
+        Err(err) => skipped.push(format!("{label}：写入失败：{err}")),
+    }
 }
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
@@ -572,4 +588,36 @@ pub fn remove_file(steam_dir: String, channel: String, component: String) -> Res
 pub fn dumps(steam_dir: String) -> Result<Vec<CrashDump>> {
     let dir = manager::validate_steam_dir(&steam_dir)?;
     Ok(scan_dumps(&dir, 20))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::services::patterns::GeneratedPattern;
+
+    /// Rules files name their channel `steamui` / `steamclient`, but on disk the
+    /// generated files belong in the `pattern` directory. Guard the mapping.
+    #[test]
+    fn store_generated_uses_requested_channel_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let generated = GeneratedPattern {
+            channel: "steamui".into(),
+            component: "steamui".into(),
+            sha256: "deadbeef".into(),
+            text: "[hook]\nname = \"x\"\n".into(),
+            hooks: 1,
+        };
+        let mut files = Vec::new();
+        let mut skipped = Vec::new();
+
+        store_generated(dir.path(), "pattern", generated, &mut files, &mut skipped);
+
+        assert!(skipped.is_empty(), "{skipped:?}");
+        assert_eq!(files.len(), 1);
+        assert!(dir
+            .path()
+            .join("opensteamtool/pattern/steamui/deadbeef.toml")
+            .is_file());
+        assert!(!dir.path().join("opensteamtool/steamui").exists());
+    }
 }
